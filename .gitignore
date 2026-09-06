@@ -1,0 +1,10 @@
+.venv/
+build/
+dist/
+cache/
+*.index
+*.pkl
+*.pkg
+*.app
+.DS_Store
+__pycache__/

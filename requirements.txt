@@ -1,0 +1,9 @@
+streamlit
+torch
+torchvision
+timm
+faiss-cpu
+pillow
+matplotlib
+pandas
+numpy
