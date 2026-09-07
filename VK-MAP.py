@@ -1,17 +1,18 @@
 import os
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-import pickle
-import streamlit as st
-import torch
-import numpy as np
-import faiss
-import timm
-from PIL import Image
-from torchvision import transforms
-import matplotlib.pyplot as plt
-import pandas as pd
 from datetime import datetime
+import pickle
+import faiss
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from PIL import Image
+import streamlit as st
+import timm
+import torch
+from torchvision import transforms
 
 # --------------------------------------------------
 # Base Directory Configuration (Resolves Read-Only & Absolute Path Issues)
@@ -23,258 +24,349 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --------------------------------------------------
 st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
 st.title("🏛️ VK-MAP (UI2)")
-st.caption("Visual Kofun Matching and Attention Profiling System — Automatic Database Matching")
+st.caption(
+    "Visual Kofun Matching and Attention Profiling System — Automatic"
+    " Database Matching"
+)
 
 # --------------------------------------------------
 # 2. Sidebar Settings
 # --------------------------------------------------
 st.sidebar.header("⚙️ Settings")
-threshold = st.sidebar.slider("Similarity Threshold", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
-reference_dir = st.sidebar.text_input("Reference Data Directory", value="reference_data")
+threshold = st.sidebar.slider(
+    "Similarity Threshold",
+    min_value=0.0,
+    max_value=1.0,
+    value=0.60,
+    step=0.05,
+)
+reference_dir = st.sidebar.text_input(
+    "Reference Data Directory", value="reference_data"
+)
+
+# ボタンを押すことでキャッシュを破棄し、2152枚の画像を再読み込みしてインデックスを再作成する
+rebuild_db = st.sidebar.button("🔄 Rebuild Feature Database")
+
 
 # --------------------------------------------------
 # Helper Functions for Path Resolution
 # --------------------------------------------------
 def resolve_path(rel_or_abs_path):
-    """Convert relative paths to script-relative absolute paths."""
-    if os.path.isabs(rel_or_abs_path):
-        return rel_or_abs_path
-    return os.path.join(BASE_DIR, rel_or_abs_path)
+  """Convert relative paths to script-relative absolute paths."""
+  if os.path.isabs(rel_or_abs_path):
+    return rel_or_abs_path
+  return os.path.join(BASE_DIR, rel_or_abs_path)
+
 
 def find_valid_image_path(original_path, ref_dir_abs):
-    """Fallback mechanism to resolve file path mismatches caused by folder/file renaming."""
-    if os.path.exists(original_path):
-        return original_path
+  """Fallback mechanism to resolve file path mismatches caused by folder/file renaming."""
+  if os.path.exists(original_path):
+    return original_path
 
-    filename = os.path.basename(original_path)
-    for root, _, files in os.walk(ref_dir_abs):
-        if filename in files:
-            return os.path.join(root, filename)
-            
-    return None
+  filename = os.path.basename(original_path)
+  for root, _, files in os.walk(ref_dir_abs):
+    if filename in files:
+      return os.path.join(root, filename)
+
+  return None
+
 
 # --------------------------------------------------
 # 3. Model & Cache Automatic Build Initialization
 # --------------------------------------------------
 @st.cache_resource
 def load_system(ref_dir_input):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    transform = transforms.Compose([
-        transforms.Resize((518, 518)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    
-    # Load DINOv2 Model
-    model = timm.create_model('vit_small_patch14_dinov2.lvd142m', pretrained=True, num_classes=0).to(device)
-    model.eval()
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  transform = transforms.Compose([
+      transforms.Resize((518, 518)),
+      transforms.ToTensor(),
+      transforms.Normalize(
+          mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+      ),
+  ])
 
-    ref_dir_abs = resolve_path(ref_dir_input)
-    cache_dir = resolve_path("cache")
-    os.makedirs(cache_dir, exist_ok=True)
+  # Load DINOv2 Model
+  model = timm.create_model(
+      "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
+  ).to(device)
+  model.eval()
 
-    index_file = os.path.join(cache_dir, "kofun_faiss.index")
-    mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
+  ref_dir_abs = resolve_path(ref_dir_input)
+  cache_dir = resolve_path("cache")
+  os.makedirs(cache_dir, exist_ok=True)
 
-    # If index files don't exist, build them automatically from reference directory
-    if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
-        if not os.path.exists(ref_dir_abs):
-            st.error(f"⚠️ Directory '{ref_dir_abs}' not found. Please check your reference data directory settings.")
-            st.stop()
+  index_file = os.path.join(cache_dir, "kofun_faiss.index")
+  mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
 
-        features = []
-        index_to_kofun = {}
-        valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
-        
-        image_paths = []
-        for root, _, files in os.walk(ref_dir_abs):
-            for file in files:
-                if file.lower().endswith(valid_extensions):
-                    image_paths.append(os.path.join(root, file))
+  # If index files don't exist, build them automatically from reference directory
+  if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
+    if not os.path.exists(ref_dir_abs):
+      st.error(
+          f"⚠️ Directory '{ref_dir_abs}' not found. Please check your reference"
+          " data directory settings."
+      )
+      st.stop()
 
-        if not image_paths:
-            st.error(f"⚠️ No valid images found in '{ref_dir_abs}'.")
-            st.stop()
+    features = []
+    index_to_kofun = {}
+    valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
 
-        progress_bar = st.progress(0, text="Building reference feature database for the first time...")
-        for idx, img_path in enumerate(image_paths):
-            try:
-                img = Image.open(img_path).convert('RGB')
-                tensor = transform(img).unsqueeze(0).to(device)
-                
-                with torch.no_grad():
-                    feat = model(tensor)
-                    feat = feat / feat.norm(p=2, dim=-1, keepdim=True)
-                    feat_np = feat.cpu().numpy().astype('float32')
+    image_paths = []
+    for root, _, files in os.walk(ref_dir_abs):
+      for file in files:
+        if file.lower().endswith(valid_extensions):
+          image_paths.append(os.path.join(root, file))
 
-                features.append(feat_np[0])
-                kofun_name = os.path.basename(os.path.dirname(img_path))
-                index_to_kofun[idx] = {
-                    "kofun_name": kofun_name,
-                    "img_path": img_path
-                }
-            except Exception as e:
-                st.warning(f"Skipped corrupt image {img_path}: {e}")
-            
-            progress_bar.progress((idx + 1) / len(image_paths))
-        progress_bar.empty()
+    if not image_paths:
+      st.error(f"⚠️ No valid images found in '{ref_dir_abs}'.")
+      st.stop()
 
-        # Build FAISS index
-        feat_dim = features[0].shape[0]
-        index = faiss.IndexFlatIP(feat_dim)
-        index.add(np.array(features))
+    progress_bar = st.progress(
+        0,
+        text=(
+            f"Building reference feature database for {len(image_paths)} images"
+            "..."
+        ),
+    )
+    for idx, img_path in enumerate(image_paths):
+      try:
+        img = Image.open(img_path).convert("RGB")
+        tensor = transform(img).unsqueeze(0).to(device)
 
-        # Save cache
-        faiss.write_index(index, index_file)
-        with open(mapping_file, 'wb') as f:
-            pickle.dump(index_to_kofun, f)
+        with torch.no_grad():
+          feat = model(tensor)
+          feat = feat / feat.norm(p=2, dim=-1, keepdim=True)
+          feat_np = feat.cpu().numpy().astype("float32")
 
-    else:
-        index = faiss.read_index(index_file)
-        with open(mapping_file, 'rb') as f:
-            index_to_kofun = pickle.load(f)
+        features.append(feat_np[0])
+        kofun_name = os.path.basename(os.path.dirname(img_path))
+        index_to_kofun[idx] = {"kofun_name": kofun_name, "img_path": img_path}
+      except Exception as e:
+        st.warning(f"Skipped corrupt image {img_path}: {e}")
 
-    return model, index, index_to_kofun, transform, device, ref_dir_abs
+      progress_bar.progress((idx + 1) / len(image_paths))
+    progress_bar.empty()
+
+    # Build FAISS index
+    feat_dim = features[0].shape[0]
+    index = faiss.IndexFlatIP(feat_dim)
+    index.add(np.array(features))
+
+    # Save cache
+    faiss.write_index(index, index_file)
+    with open(mapping_file, "wb") as f:
+      pickle.dump(index_to_kofun, f)
+
+  else:
+    index = faiss.read_index(index_file)
+    with open(mapping_file, "rb") as f:
+      index_to_kofun = pickle.load(f)
+
+  return model, index, index_to_kofun, transform, device, ref_dir_abs
+
+
+# 再構築ボタンが押された場合、キャッシュをクリアし既存のindex/pklファイルを物理削除する
+if rebuild_db:
+  st.cache_resource.clear()
+  cache_dir_path = resolve_path("cache")
+  idx_p = os.path.join(cache_dir_path, "kofun_faiss.index")
+  map_p = os.path.join(cache_dir_path, "kofun_mapping.pkl")
+  if os.path.exists(idx_p):
+    os.remove(idx_p)
+  if os.path.exists(map_p):
+    os.remove(map_p)
 
 with st.spinner("📦 Initializing DINOv2 model and reference database..."):
-    model, index, index_to_kofun, transform, device, ref_dir_abs = load_system(reference_dir)
+  model, index, index_to_kofun, transform, device, ref_dir_abs = load_system(
+      reference_dir
+  )
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} reference features loaded)")
+
 
 # --------------------------------------------------
 # 4. Attention Map Generator
 # --------------------------------------------------
 def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
-    patch_size = 14
-    w, h = input_tensor.shape[2], input_tensor.shape[3]
-    w_featmap, h_featmap = w // patch_size, h // patch_size
+  patch_size = 14
+  w, h = input_tensor.shape[2], input_tensor.shape[3]
+  w_featmap, h_featmap = w // patch_size, h // patch_size
 
-    attentions = None
-    def hook_fn(module, input, output):
-        nonlocal attentions
-        attentions = output
+  attentions = None
 
-    handle = model.blocks[-1].attn.qkv.register_forward_hook(hook_fn)
-    with torch.no_grad():
-        _ = model(input_tensor)
-    handle.remove()
+  def hook_fn(module, input, output):
+    nonlocal attentions
+    attentions = output
 
-    if attentions is None:
-        return None
+  handle = model.blocks[-1].attn.qkv.register_forward_hook(hook_fn)
+  with torch.no_grad():
+    _ = model(input_tensor)
+  handle.remove()
 
-    B, N, C = attentions.shape
-    qkv = attentions.reshape(B, N, 3, model.blocks[-1].attn.num_heads, C // (3 * model.blocks[-1].attn.num_heads)).permute(2, 0, 3, 1, 4)
-    q, k = qkv[0], qkv[1]
+  if attentions is None:
+    return None
 
-    scale = (C // (3 * model.blocks[-1].attn.num_heads)) ** -0.5
-    attn = (q @ k.transpose(-2, -1)) * scale
-    attn = attn.softmax(dim=-1)
+  B, N, C = attentions.shape
+  qkv = (
+      attentions.reshape(
+          B,
+          N,
+          3,
+          model.blocks[-1].attn.num_heads,
+          C // (3 * model.blocks[-1].attn.num_heads),
+      )
+      .permute(2, 0, 3, 1, 4)
+  )
+  q, k = qkv[0], qkv[1]
 
-    cls_attn = attn[0, :, 0, 1:].mean(dim=0).reshape(w_featmap, h_featmap).cpu().numpy()
-    cls_attn_resized = np.array(Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC))
-    cls_attn_norm = (cls_attn_resized - cls_attn_resized.min()) / (cls_attn_resized.max() - cls_attn_resized.min() + 1e-8)
+  scale = (C // (3 * model.blocks[-1].attn.num_heads)) ** -0.5
+  attn = (q @ k.transpose(-2, -1)) * scale
+  attn = attn.softmax(dim=-1)
 
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.imshow(img_pil)
-    ax.imshow(cls_attn_norm, cmap='jet', alpha=0.5)
-    ax.set_title(title, fontsize=10)
-    ax.axis('off')
-    plt.tight_layout()
-    return fig
+  cls_attn = (
+      attn[0, :, 0, 1:]
+      .mean(dim=0)
+      .reshape(w_featmap, h_featmap)
+      .cpu()
+      .numpy()
+  )
+  cls_attn_resized = np.array(
+      Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC)
+  )
+  cls_attn_norm = (cls_attn_resized - cls_attn_resized.min()) / (
+      cls_attn_resized.max() - cls_attn_resized.min() + 1e-8
+  )
+
+  fig, ax = plt.subplots(figsize=(5, 5))
+  ax.imshow(img_pil)
+  ax.imshow(cls_attn_norm, cmap="jet", alpha=0.5)
+  ax.set_title(title, fontsize=10)
+  ax.axis("off")
+  plt.tight_layout()
+  return fig
+
 
 # --------------------------------------------------
 # 5. UI: File Upload Section
 # --------------------------------------------------
 st.subheader("1. Upload Target Image")
-uploaded_file = st.file_uploader("Drag and drop decorated pattern image here", type=["jpg", "jpeg", "png", "webp"])
+uploaded_file = st.file_uploader(
+    "Drag and drop decorated pattern image here",
+    type=["jpg", "jpeg", "png", "webp"],
+)
 
 if uploaded_file:
-    query_img = Image.open(uploaded_file).convert('RGB')
-    query_tensor = transform(query_img).unsqueeze(0).to(device)
+  query_img = Image.open(uploaded_file).convert("RGB")
+  query_tensor = transform(query_img).unsqueeze(0).to(device)
 
-    # Search in Database
-    with torch.no_grad():
-        query_vec = model(query_tensor)
-        query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
-        query_vec_np = query_vec.cpu().numpy().astype('float32')
+  # Search in Database
+  with torch.no_grad():
+    query_vec = model(query_tensor)
+    query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
+    query_vec_np = query_vec.cpu().numpy().astype("float32")
 
-    k_search = min(3, len(index_to_kofun))
-    distances, indices = index.search(query_vec_np, k=k_search)
+  k_search = min(3, len(index_to_kofun))
+  distances, indices = index.search(query_vec_np, k=k_search)
 
-    top_score = float(distances[0][0])
-    top_match = index_to_kofun[indices[0][0]]
-    predicted_label = top_match['kofun_name'] if top_score >= threshold else "Unregistered (Low Similarity)"
+  top_score = float(distances[0][0])
+  top_match = index_to_kofun[indices[0][0]]
+  predicted_label = (
+      top_match["kofun_name"]
+      if top_score >= threshold
+      else "Unregistered (Low Similarity)"
+  )
 
-    rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
-    rank2_score = float(distances[0][1]) if k_search > 1 else top_score
+  rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
+  rank2_score = float(distances[0][1]) if k_search > 1 else top_score
 
-    rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
-    rank3_score = float(distances[0][2]) if k_search > 2 else top_score
+  rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
+  rank3_score = float(distances[0][2]) if k_search > 2 else top_score
 
-    # --------------------------------------------------
-    # 6. UI: Prediction Results Table
-    # --------------------------------------------------
-    st.markdown("---")
-    st.subheader("2. Matching Results")
+  # --------------------------------------------------
+  # 6. UI: Prediction Results Table
+  # --------------------------------------------------
+  st.markdown("---")
+  st.subheader("2. Matching Results")
 
-    result_data = [{
-        "Input File": uploaded_file.name,
-        "Predicted Kofun": predicted_label,
-        "Top Similarity": round(top_score, 4),
-        "Rank 1 Match": top_match['kofun_name'],
-        "Rank 2 Match": rank2_match['kofun_name'],
-        "Rank 2 Score": round(rank2_score, 4),
-        "Rank 3 Match": rank3_match['kofun_name'],
-        "Rank 3 Score": round(rank3_score, 4)
-    }]
-    df_result = pd.DataFrame(result_data)
+  result_data = [{
+      "Input File": uploaded_file.name,
+      "Predicted Kofun": predicted_label,
+      "Top Similarity": round(top_score, 4),
+      "Rank 1 Match": top_match["kofun_name"],
+      "Rank 2 Match": rank2_match["kofun_name"],
+      "Rank 2 Score": round(rank2_score, 4),
+      "Rank 3 Match": rank3_match["kofun_name"],
+      "Rank 3 Score": round(rank3_score, 4),
+  }]
+  df_result = pd.DataFrame(result_data)
 
-    m1, m2 = st.columns(2)
-    m1.metric("Predicted Label", predicted_label)
-    m2.metric("Top Similarity Score", f"{top_score:.4f}")
+  m1, m2 = st.columns(2)
+  m1.metric("Predicted Label", predicted_label)
+  m2.metric("Top Similarity Score", f"{top_score:.4f}")
 
-    st.dataframe(df_result, use_container_width=True)
+  st.dataframe(df_result, use_container_width=True)
 
-    # CSV Download Button
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_bytes = df_result.to_csv(index=False).encode('utf-8-sig')
-    st.download_button(
-        label="📥 Download Result CSV",
-        data=csv_bytes,
-        file_name=f"VK-MAP_matching_result_{timestamp}.csv",
-        mime="text/csv"
-    )
+  # CSV Download Button
+  timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+  csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
+  st.download_button(
+      label="📥 Download Result CSV",
+      data=csv_bytes,
+      file_name=f"VK-MAP_matching_result_{timestamp}.csv",
+      mime="text/csv",
+  )
 
-    # --------------------------------------------------
-    # 7. UI: Attention Heatmap Comparison
-    # --------------------------------------------------
-    st.markdown("---")
-    st.subheader("3. Attention Map Profiling (Target vs. Rank 1 Database Match)")
+  # --------------------------------------------------
+  # 7. UI: Attention Heatmap Comparison
+  # --------------------------------------------------
+  st.markdown("---")
+  st.subheader(
+      "3. Attention Map Profiling (Target vs. Rank 1 Database Match)"
+  )
 
-    ref_img_path = find_valid_image_path(top_match['img_path'], ref_dir_abs)
+  ref_img_path = find_valid_image_path(top_match["img_path"], ref_dir_abs)
 
-    if ref_img_path and os.path.exists(ref_img_path):
-        ref_img = Image.open(ref_img_path).convert('RGB')
-        ref_tensor = transform(ref_img).unsqueeze(0).to(device)
+  if ref_img_path and os.path.exists(ref_img_path):
+    ref_img = Image.open(ref_img_path).convert("RGB")
+    ref_tensor = transform(ref_img).unsqueeze(0).to(device)
 
-        with st.spinner("Generating attention heatmaps..."):
-            fig_query = generate_heatmap_fig(query_img, query_tensor, model, title=f"Target: {uploaded_file.name}")
-            fig_ref = generate_heatmap_fig(ref_img, ref_tensor, model, title=f"Top 1 Match: {top_match['kofun_name']}")
+    with st.spinner("Generating attention heatmaps..."):
+      fig_query = generate_heatmap_fig(
+          query_img,
+          query_tensor,
+          model,
+          title=f"Target: {uploaded_file.name}",
+      )
+      fig_ref = generate_heatmap_fig(
+          ref_img,
+          ref_tensor,
+          model,
+          title=f"Top 1 Match: {top_match['kofun_name']}",
+      )
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"### 📷 Target Image")
-            st.image(query_img, use_container_width=True)
-            if fig_query:
-                st.pyplot(fig_query)
+    c1, c2 = st.columns(2)
+    with c1:
+      st.markdown("### 📷 Target Image")
+      st.image(query_img, use_container_width=True)
+      if fig_query:
+        st.pyplot(fig_query)
 
-        with c2:
-            st.markdown(f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})")
-            st.image(ref_img, caption=f"File: {os.path.basename(ref_img_path)}", use_container_width=True)
-            if fig_ref:
-                st.pyplot(fig_ref)
-    else:
-        st.error(f"⚠️ Reference image file not found: `{top_match['img_path']}`")
+    with c2:
+      st.markdown(
+          f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})"
+      )
+      st.image(
+          ref_img,
+          caption=f"File: {os.path.basename(ref_img_path)}",
+          use_container_width=True,
+      )
+      if fig_ref:
+        st.pyplot(fig_ref)
+  else:
+    st.error(f"⚠️ Reference image file not found: `{top_match['img_path']}`")
 
 else:
-    st.info("👆 Upload an image to search the reference database and view attention map profiling.")
+  st.info(
+      "👆 Upload an image to search the reference database and view attention"
+      " map profiling."
+  )
