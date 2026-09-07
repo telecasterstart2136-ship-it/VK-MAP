@@ -264,13 +264,13 @@ if uploaded_file:
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"### 📷 Target Image")
-            st.image(query_img, use_column_width=True)
+            st.image(query_img, use_container_width=True)
             if fig_query:
                 st.pyplot(fig_query)
 
         with c2:
             st.markdown(f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})")
-            st.image(ref_img, caption=f"File: {os.path.basename(ref_img_path)}", use_column_width=True)
+            st.image(ref_img, caption=f"File: {os.path.basename(ref_img_path)}", use_container_width=True)
             if fig_ref:
                 st.pyplot(fig_ref)
     else:
