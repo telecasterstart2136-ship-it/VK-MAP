@@ -44,7 +44,6 @@ reference_dir = st.sidebar.text_input(
     "Reference Data Directory", value="reference_data"
 )
 
-# ボタンを押すことでキャッシュを破棄し、2152枚の画像を再読み込みしてインデックスを再作成する
 rebuild_db = st.sidebar.button("🔄 Rebuild Feature Database")
 
 
