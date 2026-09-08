@@ -4,8 +4,8 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from datetime import datetime
 import pickle
-import urllib.request  # ← この行を追加します！
 import faiss
+import gdown  # gdown を使用
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -14,60 +14,28 @@ import streamlit as st
 import timm
 import torch
 from torchvision import transforms
+
 # --------------------------------------------------
-# Base Directory Configuration (Resolves Read-Only & Absolute Path Issues)
+# Base Directory Configuration
 # --------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-INDEX_URL = "https://drive.google.com/drive/u/2/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
-MAPPING_URL = "https://drive.google.com/drive/u/2/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+# --------------------------------------------------
+# Google Drive のファイルIDを設定
+# ※ 各ファイルの「リンクを共有」から取得できるファイルID（28〜33文字程度の英数字）を貼り付けてください
+# --------------------------------------------------
+INDEX_FILE_ID = "YOUR_INDEX_FILE_ID_HERE"  # kofun_faiss.index の ID
+MAPPING_FILE_ID = "YOUR_MAPPING_FILE_ID_HERE"  # kofun_mapping.pkl の ID
 
 
-def download_file_from_cloud(url, save_path):
-  """クラウドからファイルをダウンロードする関数"""
-  if not os.path.exists(save_path):
+def download_from_gdrive(file_id, save_path):
+  """Google Driveからファイル本体を自動ダウンロードする関数"""
+  if not os.path.exists(save_path) or os.path.getsize(save_path) < 1000:
+    url = f"https://drive.google.com/uc?id={file_id}"
     with st.spinner(
-        f"Downloading {os.path.basename(save_path)} from cloud..."
+        f"Downloading {os.path.basename(save_path)} from Google Drive..."
     ):
-      urllib.request.urlretrieve(url, save_path)
-
-
-@st.cache_resource
-def load_system():
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  transform = transforms.Compose([
-      transforms.Resize((518, 518)),
-      transforms.ToTensor(),
-      transforms.Normalize(
-          mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-      ),
-  ])
-# --------------------------------------------------
-# 1. Page Configuration
-# --------------------------------------------------
-st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
-st.title("🏛️ VK-MAP (UI2)")
-st.caption(
-    "Visual Kofun Matching and Attention Profiling System — Automatic"
-    " Database Matching"
-)
-
-# --------------------------------------------------
-# 2. Sidebar Settings
-# --------------------------------------------------
-st.sidebar.header("⚙️ Settings")
-threshold = st.sidebar.slider(
-    "Similarity Threshold",
-    min_value=0.0,
-    max_value=1.0,
-    value=0.60,
-    step=0.05,
-)
-reference_dir = st.sidebar.text_input(
-    "Reference Data Directory", value="reference_data"
-)
-
-rebuild_db = st.sidebar.button("🔄 Rebuild Feature Database")
+      gdown.download(url, save_path, quiet=False)
 
 
 # --------------------------------------------------
@@ -94,50 +62,74 @@ def find_valid_image_path(original_path, ref_dir_abs):
 
 
 # --------------------------------------------------
-# 3. Model & Cache Automatic Build Initialization
+# 1. Page Configuration
+# --------------------------------------------------
+st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
+st.title("🏛️ VK-MAP (UI2)")
+st.caption(
+    "Visual Kofun Matching and Attention Profiling System — Automatic Database"
+    " Matching"
+)
+
+# --------------------------------------------------
+# 2. Sidebar Settings
+# --------------------------------------------------
+st.sidebar.header("⚙️ Settings")
+threshold = st.sidebar.slider(
+    "Similarity Threshold",
+    min_value=0.0,
+    max_value=1.0,
+    value=0.60,
+    step=0.05,
+)
+reference_dir = st.sidebar.text_input(
+    "Reference Data Directory", value="reference_data"
+)
+
+
+# --------------------------------------------------
+# 3. Model & Cache Initialization
 # --------------------------------------------------
 @st.cache_resource
-@st.cache_resource
 def load_system():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    transform = transforms.Compose([
-        transforms.Resize((518, 518)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        ),
-    ])
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  transform = transforms.Compose([
+      transforms.Resize((518, 518)),
+      transforms.ToTensor(),
+      transforms.Normalize(
+          mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+      ),
+  ])
 
-    # DINOv2 モデルの読み込み
-    model = timm.create_model(
-        "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
-    ).to(device)
-    model.eval()  # ← ここの先頭スペースを上の行（model = ...）とぴったり揃えます
+  # DINOv2 モデルの読み込み
+  model = timm.create_model(
+      "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
+  ).to(device)
+  model.eval()
 
-    cache_dir = os.path.join(BASE_DIR, "cache")
-    os.makedirs(cache_dir, exist_ok=True)
+  cache_dir = os.path.join(BASE_DIR, "cache")
+  os.makedirs(cache_dir, exist_ok=True)
 
+  index_file = os.path.join(cache_dir, "kofun_faiss.index")
+  mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
 
-    index_file = os.path.join(cache_dir, "kofun_faiss.index")
-    mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
+  # Google Drive からダウンロード（初回または破損時）
+  download_from_gdrive(INDEX_FILE_ID, index_file)
+  download_from_gdrive(MAPPING_FILE_ID, mapping_file)
 
-  # 1. キャッシュがローカルになければクラウドから高速ダウンロード
-    if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
-      download_file_from_cloud(INDEX_URL, index_file)
-      download_file_from_cloud(MAPPING_URL, mapping_file)
+  # ロード処理
+  index = faiss.read_index(index_file)
+  with open(mapping_file, "rb") as f:
+    index_to_kofun = pickle.load(f)
 
-  # 2. クラウドから取得した（または既存の）インデックスをロード
-      index = faiss.read_index(index_file)
-      with open(mapping_file, "rb") as f:
-         index_to_kofun = pickle.load(f)
-
-      return model, index, index_to_kofun, transform, device
+  return model, index, index_to_kofun, transform, device
 
 
 with st.spinner("📦 Initializing DINOv2 model and index..."):
   model, index, index_to_kofun, transform, device = load_system()
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
+
 
 # --------------------------------------------------
 # 4. Attention Map Generator
@@ -169,8 +161,7 @@ def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
           3,
           model.blocks[-1].attn.num_heads,
           C // (3 * model.blocks[-1].attn.num_heads),
-      )
-      .permute(2, 0, 3, 1, 4)
+      ).permute(2, 0, 3, 1, 4)
   )
   q, k = qkv[0], qkv[1]
 
@@ -179,11 +170,7 @@ def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
   attn = attn.softmax(dim=-1)
 
   cls_attn = (
-      attn[0, :, 0, 1:]
-      .mean(dim=0)
-      .reshape(w_featmap, h_featmap)
-      .cpu()
-      .numpy()
+      attn[0, :, 0, 1:].mean(dim=0).reshape(w_featmap, h_featmap).cpu().numpy()
   )
   cls_attn_resized = np.array(
       Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC)
@@ -279,6 +266,7 @@ if uploaded_file:
       "3. Attention Map Profiling (Target vs. Rank 1 Database Match)"
   )
 
+  ref_dir_abs = resolve_path(reference_dir)
   ref_img_path = find_valid_image_path(top_match["img_path"], ref_dir_abs)
 
   if ref_img_path and os.path.exists(ref_img_path):
