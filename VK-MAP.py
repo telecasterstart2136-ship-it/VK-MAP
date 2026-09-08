@@ -29,7 +29,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # （取得した実際のファイルIDに書き換えてください）
 # --------------------------------------------------
 INDEX_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
-MAPPING_FILE_ID ="1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+MAPPING_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
 
 
 def download_index_files(target_dir):
