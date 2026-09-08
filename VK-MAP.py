@@ -1,386 +1,118 @@
+# 1. Google Drive をマウント
+from google.colab import drive
+
+drive.mount("/content/drive")
+
 import os
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-from datetime import datetime
-import gc
 import pickle
-import shutil
 import faiss
-import gdown
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from PIL import Image
-import requests
-import streamlit as st
 import timm
 import torch
 from torchvision import transforms
+from tqdm import tqdm
 
-# --------------------------------------------------
-# Base Directory Configuration
-# --------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ==========================================
+# 2. パスと設定
+# ==========================================
+# スクリーンショットにある「マイドライブ > VK-MAP」の絶対パス
+IMAGE_DIR = "/content/drive/MyDrive/VK-MAP"
 
-# --------------------------------------------------
-# Google Drive の フォルダURL 設定
-# --------------------------------------------------
-GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"
+# 生成するファイルの出力先（Drive内のVK-MAPフォルダに直接保存）
+OUTPUT_INDEX_PATH = "/content/drive/MyDrive/VK-MAP/kofun_faiss.index"
+OUTPUT_MAPPING_PATH = "/content/drive/MyDrive/VK-MAP/kofun_mapping.pkl"
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"使用デバイス: {device}")
 
-def fetch_from_url(url, save_path):
-    """URLからファイルを安全にダウンロードするヘルパー関数"""
+# ==========================================
+# 3. DINOv2 モデルの準備
+# ==========================================
+transform = transforms.Compose([
+    transforms.Resize((518, 518)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    ),
+])
+
+print("DINOv2 モデルをロード中...")
+model = timm.create_model(
+    "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
+).to(device)
+model.eval()
+
+# ==========================================
+# 4. 画像の収集と特徴量抽出
+# ==========================================
+VALID_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+
+image_paths = []
+for root, _, files in os.walk(IMAGE_DIR):
+  for file in files:
+    if file.lower().endswith(VALID_EXTS):
+      image_paths.append(os.path.join(root, file))
+
+image_paths.sort()
+print(f"検出された画像数: {len(image_paths)} 枚")
+
+if len(image_paths) == 0:
+  raise ValueError(
+      f"指定されたフォルダ '{IMAGE_DIR}' 内に画像が見つかりませんでした。"
+  )
+
+vectors = []
+index_to_kofun = {}
+
+print("特徴量ベクトルの抽出を開始します...")
+with torch.no_grad():
+  for current_idx, img_path in enumerate(tqdm(image_paths)):
     try:
-        session = requests.Session()
-        response = session.get(url, stream=True, timeout=30)
-        if response.status_code == 200:
-            with open(save_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=32768):
-                    if chunk:
-                        f.write(chunk)
-            return True
-    except Exception:
-        pass
-    return False
+      img = Image.open(img_path).convert("RGB")
+      input_tensor = transform(img).unsqueeze(0).to(device)
 
+      feat_vec = model(input_tensor)
+      feat_vec = feat_vec / feat_vec.norm(p=2, dim=-1, keepdim=True)
+      vec_np = feat_vec.cpu().numpy().astype("float32").flatten()
 
-def download_index_folder(folder_url, target_dir):
-    """Google Driveのフォルダから必要ファイルを自動一括ダウンロードする関数"""
-    index_path = os.path.join(target_dir, "kofun_faiss.index")
-    mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
+      # パス構造から古墳名（または画像が属するフォルダ名/ファイル名）を取得
+      # 例: VK-MAP/Fukukuoka/井寺古墳/01.jpg -> "井寺古墳"
+      rel_path = os.path.relpath(img_path, IMAGE_DIR)
+      parent_dir = os.path.dirname(rel_path)
 
-    MIN_INDEX_SIZE = 1000  # 判定用最小サイズ
+      if parent_dir:
+        # 最深部のフォルダ名を識別名とする（階層に応じてお好みで調整可能）
+        kofun_name = os.path.basename(parent_dir)
+      else:
+        kofun_name = os.path.splitext(os.path.basename(img_path))[0]
 
-    # 既に正常なファイルが存在する場合はダウンロードをスキップ
-    if (
-        os.path.exists(index_path)
-        and os.path.exists(mapping_path)
-        and os.path.getsize(index_path) > MIN_INDEX_SIZE
-    ):
-        return index_path, mapping_path
+      vectors.append(vec_np)
+      index_to_kofun[current_idx] = {
+          "kofun_name": kofun_name,
+          "img_path": img_path,
+          "filename": os.path.basename(img_path),
+      }
 
-    os.makedirs(target_dir, exist_ok=True)
-
-    with st.spinner("📦 Downloading VK-MAP database from Google Drive..."):
-        try:
-            # フォルダごとダウンロードを試みる
-            gdown.download_folder(
-                url=folder_url, output=target_dir, quiet=True, remaining_ok=True
-            )
-        except Exception as e:
-            st.warning(f"Folder download warning: {e}")
-
-    # サブフォルダにダウンロードされてしまった場合のパス補正
-    subfolder = os.path.join(target_dir, "VK-MAP")
-    if os.path.exists(subfolder):
-        for fname in os.listdir(subfolder):
-            src_file = os.path.join(subfolder, fname)
-            dst_file = os.path.join(target_dir, fname)
-            if os.path.isfile(src_file):
-                shutil.move(src_file, dst_file)
-
-    # ダウンロード後の検証
-    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-        st.error(
-            "⚠️ フォルダ内に `kofun_faiss.index` または `kofun_mapping.pkl` が見つかりませんでした。\n"
-            "Google Drive フォルダ内のファイル名および共有設定（「リンクを知っている全員」）を確認してください。"
-        )
-        st.stop()
-
-    # HTML（アクセス権限エラー画面）がダウンロードされていないか検証
-    try:
-        with open(index_path, "rb") as f:
-            header = f.read(100).lower()
-            if b"<html" in header or b"<!doctype html" in header:
-                shutil.rmtree(target_dir, ignore_errors=True)
-                st.error(
-                    "⚠️ Google Drive の権限エラーにより HTML が取得されました。"
-                    "フォルダの共有設定を「リンクを知っている全員」に変更してください。"
-                )
-                st.stop()
     except Exception as e:
-        st.error(f"⚠️ インデックスファイルの読み込みエラー: {e}")
-        st.stop()
+      print(f"\n⚠️ 読み込みエラー ({img_path}): {e}")
 
-    return index_path, mapping_path
+# ==========================================
+# 5. FAISS インデックスの生成と保存
+# ==========================================
+vectors_np = np.array(vectors).astype("float32")
+dimension = vectors_np.shape[1]
 
+print(f"\nFAISS インデックス構築中 (次元数: {dimension})...")
+index = faiss.IndexFlatIP(dimension)
+index.add(vectors_np)
 
-# --------------------------------------------------
-# Helper Functions for Path Resolution
-# --------------------------------------------------
-def resolve_path(rel_or_abs_path):
-    if os.path.isabs(rel_or_abs_path):
-        return rel_or_abs_path
-    return os.path.join(BASE_DIR, rel_or_abs_path)
+# Google Drive 上に直接保存
+faiss.write_index(index, OUTPUT_INDEX_PATH)
+with open(OUTPUT_MAPPING_PATH, "wb") as f:
+  pickle.dump(index_to_kofun, f)
 
-
-def find_valid_image_path(original_path, ref_dir_abs):
-    if os.path.exists(original_path):
-        return original_path
-
-    filename = os.path.basename(original_path)
-    for root, _, files in os.walk(ref_dir_abs):
-        if filename in files:
-            return os.path.join(root, filename)
-
-    return None
-
-
-# --------------------------------------------------
-# 1. Page Configuration
-# --------------------------------------------------
-st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
-st.title("🏛️ VK-MAP (UI2)")
-st.caption(
-    "Visual Kofun Matching and Attention Profiling System — Automatic Database Matching"
-)
-
-# --------------------------------------------------
-# 2. Sidebar Settings
-# --------------------------------------------------
-st.sidebar.header("⚙️ Settings")
-threshold = st.sidebar.slider(
-    "Similarity Threshold",
-    min_value=0.0,
-    max_value=1.0,
-    value=0.60,
-    step=0.05,
-)
-reference_dir = st.sidebar.text_input(
-    "Reference Data Directory", value="reference_data"
-)
-
-
-# --------------------------------------------------
-# 3. Model & Cache Initialization
-# --------------------------------------------------
-@st.cache_resource
-def load_system():
-    device = torch.device("cpu")  # Streamlit Cloudでの安定化のためCPU固定
-    transform = transforms.Compose([
-        transforms.Resize((518, 518)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        ),
-    ])
-
-    # DINOv2 モデルの読み込み
-    model = timm.create_model(
-        "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
-    ).to(device)
-    model.eval()
-
-    cache_dir = os.path.join(BASE_DIR, "cache_vkmap_dinov2")
-
-    # Google Drive の VK-MAP フォルダからファイルを取得
-    index_file, mapping_file = download_index_folder(
-        GDRIVE_FOLDER_URL, cache_dir
-    )
-
-    # ロード処理
-    index = faiss.read_index(index_file)
-    with open(mapping_file, "rb") as f:
-        index_to_kofun = pickle.load(f)
-
-    return model, index, index_to_kofun, transform, device
-
-
-with st.spinner("📦 Initializing DINOv2 model and index..."):
-    model, index, index_to_kofun, transform, device = load_system()
-
-st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
-
-
-# --------------------------------------------------
-# 4. Attention Map Generator
-# --------------------------------------------------
-def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
-    patch_size = 14
-    w, h = input_tensor.shape[2], input_tensor.shape[3]
-    w_featmap, h_featmap = w // patch_size, h // patch_size
-
-    attentions = None
-
-    def hook_fn(module, input, output):
-        nonlocal attentions
-        attentions = output
-
-    handle = model.blocks[-1].attn.qkv.register_forward_hook(hook_fn)
-    with torch.no_grad():
-        _ = model(input_tensor)
-    handle.remove()
-
-    if attentions is None:
-        return None
-
-    B, N, C = attentions.shape
-    qkv = (
-        attentions.reshape(
-            B,
-            N,
-            3,
-            model.blocks[-1].attn.num_heads,
-            C // (3 * model.blocks[-1].attn.num_heads),
-        ).permute(2, 0, 3, 1, 4)
-    )
-    q, k = qkv[0], qkv[1]
-
-    scale = (C // (3 * model.blocks[-1].attn.num_heads)) ** -0.5
-    attn = (q @ k.transpose(-2, -1)) * scale
-    attn = attn.softmax(dim=-1)
-
-    cls_attn = (
-        attn[0, :, 0, 1:].mean(dim=0).reshape(w_featmap, h_featmap).cpu().numpy()
-    )
-    cls_attn_resized = np.array(
-        Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC)
-    )
-    cls_attn_norm = (cls_attn_resized - cls_attn_resized.min()) / (
-        cls_attn_resized.max() - cls_attn_resized.min() + 1e-8
-    )
-
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.imshow(img_pil)
-    ax.imshow(cls_attn_norm, cmap="jet", alpha=0.5)
-    ax.set_title(title, fontsize=10)
-    ax.axis("off")
-    plt.tight_layout()
-    return fig
-
-
-# --------------------------------------------------
-# 5. UI: File Upload Section
-# --------------------------------------------------
-st.subheader("1. Upload Target Image")
-uploaded_file = st.file_uploader(
-    "Drag and drop decorated pattern image here",
-    type=["jpg", "jpeg", "png", "webp"],
-)
-
-if uploaded_file:
-    query_img = Image.open(uploaded_file).convert("RGB")
-    query_tensor = transform(query_img).unsqueeze(0).to(device)
-
-    # Search in Database
-    with torch.no_grad():
-        query_vec = model(query_tensor)
-        query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
-        query_vec_np = query_vec.cpu().numpy().astype("float32")
-
-    k_search = min(3, len(index_to_kofun))
-    distances, indices = index.search(query_vec_np, k=k_search)
-
-    top_score = float(distances[0][0])
-    top_match = index_to_kofun[indices[0][0]]
-    predicted_label = (
-        top_match["kofun_name"]
-        if top_score >= threshold
-        else "Unregistered (Low Similarity)"
-    )
-
-    rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
-    rank2_score = float(distances[0][1]) if k_search > 1 else top_score
-
-    rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
-    rank3_score = float(distances[0][2]) if k_search > 2 else top_score
-
-    # --------------------------------------------------
-    # 6. UI: Prediction Results Table
-    # --------------------------------------------------
-    st.markdown("---")
-    st.subheader("2. Matching Results")
-
-    result_data = [{
-        "Input File": uploaded_file.name,
-        "Predicted Kofun": predicted_label,
-        "Top Similarity": round(top_score, 4),
-        "Rank 1 Match": top_match["kofun_name"],
-        "Rank 2 Match": rank2_match["kofun_name"],
-        "Rank 2 Score": round(rank2_score, 4),
-        "Rank 3 Match": rank3_match["kofun_name"],
-        "Rank 3 Score": round(rank3_score, 4),
-    }]
-    df_result = pd.DataFrame(result_data)
-
-    m1, m2 = st.columns(2)
-    m1.metric("Predicted Label", predicted_label)
-    m2.metric("Top Similarity Score", f"{top_score:.4f}")
-
-    st.dataframe(df_result, use_container_width=True)
-
-    # CSV Download Button
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        label="📥 Download Result CSV",
-        data=csv_bytes,
-        file_name=f"VK-MAP_matching_result_{timestamp}.csv",
-        mime="text/csv",
-    )
-
-    # --------------------------------------------------
-    # 7. UI: Attention Heatmap Comparison
-    # --------------------------------------------------
-    st.markdown("---")
-    st.subheader(
-        "3. Attention Map Profiling (Target vs. Rank 1 Database Match)"
-    )
-
-    ref_dir_abs = resolve_path(reference_dir)
-    # mapping内に img_path がない場合のフォールバック処理
-    img_path_key = top_match.get("img_path") or top_match.get("image_path") or ""
-    ref_img_path = find_valid_image_path(img_path_key, ref_dir_abs)
-
-    if ref_img_path and os.path.exists(ref_img_path):
-        ref_img = Image.open(ref_img_path).convert("RGB")
-        ref_tensor = transform(ref_img).unsqueeze(0).to(device)
-
-        with st.spinner("Generating attention heatmaps..."):
-            fig_query = generate_heatmap_fig(
-                query_img,
-                query_tensor,
-                model,
-                title=f"Target: {uploaded_file.name}",
-            )
-            fig_ref = generate_heatmap_fig(
-                ref_img,
-                ref_tensor,
-                model,
-                title=f"Top 1 Match: {top_match['kofun_name']}",
-            )
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("### 📷 Target Image")
-            st.image(query_img, use_container_width=True)
-            if fig_query:
-                st.pyplot(fig_query)
-                plt.close(fig_query)
-
-        with c2:
-            st.markdown(
-                f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})"
-            )
-            st.image(
-                ref_img,
-                caption=f"File: {os.path.basename(ref_img_path)}",
-                use_container_width=True,
-            )
-            if fig_ref:
-                st.pyplot(fig_ref)
-                plt.close(fig_ref)
-    else:
-        st.warning(
-            f"ℹ️ 参考画像がリポジトリ内に見つかりません（データ照合と判定結果の出力は完了しています）。"
-        )
-
-    # メモリ解放
-    del query_tensor, query_vec, query_vec_np
-    gc.collect()
-
-else:
-    st.info(
-        "👆 Upload an image to search the reference database and view attention map profiling."
-    )
+print("🎉 処理が完了しました！")
+print(f"・インデックス: {OUTPUT_INDEX_PATH}")
+print(f"・マッピング: {OUTPUT_MAPPING_PATH}")
+print(f"・登録データ数: {index.ntotal} 件")
