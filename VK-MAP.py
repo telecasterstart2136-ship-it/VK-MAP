@@ -24,8 +24,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Google Drive のファイルIDを設定
 # ※ 各ファイルの「リンクを共有」から取得できるファイルID（28〜33文字程度の英数字）を貼り付けてください
 # --------------------------------------------------
-INDEX_FILE_ID = "https://drive.google.com/drive/u/2/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"  # kofun_faiss.index の ID
-MAPPING_FILE_ID = "https://drive.google.com/drive/u/2/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"  # kofun_mapping.pkl の ID
+INDEX_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"  # kofun_faiss.index の ID
+MAPPING_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"  # kofun_mapping.pkl の ID
 
 
 def download_from_gdrive(file_id, save_path):
