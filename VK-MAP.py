@@ -27,8 +27,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --------------------------------------------------
 # 各ファイルの右クリック > 「リンクをコピー」に含まれるIDを設定してください
 # 例: https://drive.google.com/file/d/1A2B3C.../view -> "1A2B3C..."
-INDEX_FILE_ID = "ここに_kofun_faiss.index_のファイルID"
-MAPPING_FILE_ID = "ここに_kofun_mapping.pkl_のファイルID"
+INDEX_FILE_ID = "1vPuqhU6fr1O_ldVzGYj7stbj-aDAkFxL"
+MAPPING_FILE_ID = "1U0nUqZsX77Snq2J8RmCfv26E1k1vMCe4"
 
 
 def download_db_files(target_dir):
