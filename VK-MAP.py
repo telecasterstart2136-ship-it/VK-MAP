@@ -97,24 +97,26 @@ def find_valid_image_path(original_path, ref_dir_abs):
 # 3. Model & Cache Automatic Build Initialization
 # --------------------------------------------------
 @st.cache_resource
-def load_system(ref_dir_input):
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  transform = transforms.Compose([
-      transforms.Resize((518, 518)),
-      transforms.ToTensor(),
-      transforms.Normalize(
-          mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-      ),
-  ])
+@st.cache_resource
+def load_system():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    transform = transforms.Compose([
+        transforms.Resize((518, 518)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        ),
+    ])
 
-  # Load DINOv2 Model
-model = timm.create_model(
-      "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
-  ).to(device)
-  model.eval()
+    # DINOv2 モデルの読み込み
+    model = timm.create_model(
+        "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
+    ).to(device)
+    model.eval()  # ← ここの先頭スペースを上の行（model = ...）とぴったり揃えます
 
-  cache_dir = os.path.join(BASE_DIR, "cache")
-  os.makedirs(cache_dir, exist_ok=True)
+    cache_dir = os.path.join(BASE_DIR, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+
 
   index_file = os.path.join(cache_dir, "kofun_faiss.index")
   mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
