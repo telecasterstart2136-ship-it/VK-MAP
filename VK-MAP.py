@@ -33,19 +33,11 @@ MAPPING_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
 
 
 def download_index_files(target_dir):
-  """Google Driveから index と mapping ファイルを個別に自動取得する関数"""
+  """Google Driveから index と mapping ファイルを個別に直接ダウンロードする関数"""
   index_path = os.path.join(target_dir, "kofun_faiss.index")
   mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
-  # IDが初期値のままの場合は画面上にエラーを表示して安全に停止
-  if "ここに" in INDEX_FILE_ID or "ここに" in MAPPING_FILE_ID:
-    st.error(
-        "⚠️ `INDEX_FILE_ID` または `MAPPING_FILE_ID` が設定されていません。"
-        " Google Drive のファイルIDを入力してください。"
-    )
-    st.stop()
-
-  # 既に正常なファイルが存在する場合はダウンロードをスキップ
+  # 既に正常なファイルが存在する場合はダウンロードをスキップ (1KB以上)
   if (
       os.path.exists(index_path)
       and os.path.exists(mapping_path)
@@ -56,24 +48,39 @@ def download_index_files(target_dir):
   os.makedirs(target_dir, exist_ok=True)
 
   with st.spinner("📦 Downloading index files from Google Drive..."):
-    # kofun_faiss.index の取得 (id パラメータで指定)
+    # 1. kofun_faiss.index のダウンロード
     if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
-      gdown.download(id=str(INDEX_FILE_ID), output=index_path, quiet=False)
+      url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
+      gdown.download(
+          url=url_index, output=index_path, quiet=False, fuzzy=True
+      )
 
-    # kofun_mapping.pkl の取得 (id パラメータで指定)
+    # 2. kofun_mapping.pkl のダウンロード
     if (
         not os.path.exists(mapping_path)
         or os.path.getsize(mapping_path) <= 1000
     ):
-      gdown.download(id=str(MAPPING_FILE_ID), output=mapping_path, quiet=False)
+      url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
+      gdown.download(
+          url=url_mapping, output=mapping_path, quiet=False, fuzzy=True
+      )
 
-  # ダウンロード後の検証
+  # ダウンロード後の存在チェック
   if not os.path.exists(index_path) or not os.path.exists(mapping_path):
     st.error("⚠️ Google Drive からのファイルダウンロードに失敗しました。")
     st.stop()
 
-  return index_path, mapping_path
+  # エラー画面（HTML）が保存されていないか確認
+  with open(index_path, "rb") as f:
+    if b"<html" in f.read(100).lower():
+      shutil.rmtree(target_dir, ignore_errors=True)
+      st.error(
+          "⚠️ Google Drive ファイルの取得に失敗しました。"
+          " 各ファイル単体のアクセス権限が「リンクを知っている全員」になっているか確認してください。"
+      )
+      st.stop()
 
+  return index_path, mapping_path
 # --------------------------------------------------
 # Helper Functions for Path Resolution
 # --------------------------------------------------
