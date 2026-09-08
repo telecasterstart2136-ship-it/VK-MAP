@@ -4,6 +4,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from datetime import datetime
 import pickle
+import urllib.request  # ← この行を追加します！
 import faiss
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,7 +14,6 @@ import streamlit as st
 import timm
 import torch
 from torchvision import transforms
-
 # --------------------------------------------------
 # Base Directory Configuration (Resolves Read-Only & Absolute Path Issues)
 # --------------------------------------------------
