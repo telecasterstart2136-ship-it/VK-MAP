@@ -25,13 +25,15 @@ torch.set_num_threads(2)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --------------------------------------------------
-# Google Drive の フォルダURL または フォルダID を設定
+# Google Drive の 各ファイル ID を設定
+# （取得した実際のファイルIDに書き換えてください）
 # --------------------------------------------------
-GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"
+INDEX_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=sharing"
+MAPPING_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=sharing"
 
 
-def download_index_folder(folder_url, target_dir):
-  """Google Driveのフォルダ(VK-MAP)から必要ファイルを自動一括ダウンロードする関数"""
+def download_index_files(target_dir):
+  """Google Driveから index と mapping ファイルを個別に自動取得する関数"""
   index_path = os.path.join(target_dir, "kofun_faiss.index")
   mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
@@ -45,30 +47,36 @@ def download_index_folder(folder_url, target_dir):
 
   os.makedirs(target_dir, exist_ok=True)
 
-  with st.spinner("📦 Downloading VK-MAP folder from Google Drive..."):
-    gdown.download_folder(url=folder_url, output=target_dir, quiet=False)
+  with st.spinner("📦 Downloading index files from Google Drive..."):
+    # kofun_faiss.index の取得
+    if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
+      url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
+      gdown.download(
+          url_index, index_path, quiet=False, fuzzy=True, use_cookies=False
+      )
 
-  # サブフォルダにダウンロードされてしまった場合のパス補正
-  subfolder = os.path.join(target_dir, "VK-MAP")
-  if os.path.exists(subfolder):
-    for fname in os.listdir(subfolder):
-      shutil.move(os.path.join(subfolder, fname), target_dir)
+    # kofun_mapping.pkl の取得
+    if (
+        not os.path.exists(mapping_path)
+        or os.path.getsize(mapping_path) <= 1000
+    ):
+      url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
+      gdown.download(
+          url_mapping, mapping_path, quiet=False, fuzzy=True, use_cookies=False
+      )
 
   # ダウンロード後の検証
   if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-    st.error(
-        "⚠️ フォルダ内に `kofun_faiss.index` または `kofun_mapping.pkl`"
-        " が見つかりませんでした。Google Drive フォルダ内のファイル名を確認してください。"
-    )
+    st.error("⚠️ Google Drive からのファイルダウンロードに失敗しました。")
     st.stop()
 
-  # HTML（アクセス権限エラー画面）がダウンロードされていないか検証
+  # HTML（アクセス制限エラー画面）が落ちていないか検証
   with open(index_path, "rb") as f:
     if b"<html" in f.read(100).lower():
       shutil.rmtree(target_dir, ignore_errors=True)
       st.error(
-          "⚠️ Google Drive フォルダの取得に失敗しました。"
-          " フォルダの共有設定が「リンクを知っている全員」になっているか確認してください。"
+          "⚠️ Google Drive ファイルの取得に失敗しました。"
+          " ファイル共有設定が「リンクを知っている全員」になっているか確認してください。"
       )
       st.stop()
 
@@ -129,7 +137,6 @@ reference_dir = st.sidebar.text_input(
 def load_system():
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-  # 解像度は 518x518 をそのまま維持
   transform = transforms.Compose([
       transforms.Resize((518, 518)),
       transforms.ToTensor(),
@@ -138,19 +145,15 @@ def load_system():
       ),
   ])
 
-  # 高速・軽量CNNモデル (ConvNeXt Small) に差し替え
   model = timm.create_model(
       "convnext_small.fb_in22k_ft_in1k_384", pretrained=True, num_classes=0
   ).to(device)
   model.eval()
 
-  # キャッシュフォルダ名を変更（古いDINOv2用のキャッシュと混ざるのを防止）
   cache_dir = os.path.join(BASE_DIR, "cache_vkmap_convnext")
 
-  # Google Drive の VK-MAP フォルダからファイルを取得
-  index_file, mapping_file = download_index_folder(
-      GDRIVE_FOLDER_URL, cache_dir
-  )
+  # 個別ファイルダウンロード関数を呼び出し
+  index_file, mapping_file = download_index_files(cache_dir)
 
   # ロード処理
   index = faiss.read_index(index_file)
@@ -179,7 +182,6 @@ if uploaded_file:
   query_img = Image.open(uploaded_file).convert("RGB")
   query_tensor = transform(query_img).unsqueeze(0).to(device)
 
-  # 特徴量抽出と類似度検索（torch.inference_mode で高速化）
   with torch.inference_mode():
     query_vec = model(query_tensor)
     query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
@@ -226,7 +228,6 @@ if uploaded_file:
 
   st.dataframe(df_result, use_container_width=True)
 
-  # CSV Download Button
   timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
   csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
   st.download_button(
