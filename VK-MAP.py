@@ -124,11 +124,10 @@ def load_system():
 
   # メモリ消費の少ない軽量モデルに変更 (mobilenetv3_large_100 や resnet34)
   # もしConvNeXtにこだわる場合は "convnext_tiny" に落とすと安全です
-  model = timm.create_model(
-      "mobilenetv3_large_100", pretrained=True, num_classes=0
-  ).to(device)
-  model.eval()
-
+  # FAISSインデックスの次元数（768次元等）に合わせつつメモリオーバーを防ぐ
+　 model = timm.create_model("convnext_nano", pretrained=True, num_classes=0).to(
+    device
+   )
   cache_dir = os.path.join(BASE_DIR, "cache_vkmap")
   index_file, mapping_file = download_index_files(cache_dir)
 
