@@ -130,9 +130,9 @@ def load_system():
   return model, index, index_to_kofun, transform, device
     os.makedirs(target_dir, exist_ok=True)
 
-    with st.spinner("📦 Downloading index files..."):
-        if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
-            if not fetch_from_drive(INDEX_FILE_ID, index_path):
+  with st.spinner("📦 Downloading index files..."):
+      if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
+          if not fetch_from_drive(INDEX_FILE_ID, index_path):
                 st.error("⚠️ index ファイルの取得に失敗しました。")
                 st.stop()
 
