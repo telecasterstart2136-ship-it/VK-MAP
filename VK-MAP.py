@@ -28,8 +28,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Google Drive の 各ファイル ID を設定
 # （取得した実際のファイルIDに書き換えてください）
 # --------------------------------------------------
-INDEX_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=sharing"
-MAPPING_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=sharing"
+INDEX_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+MAPPING_FILE_ID ="1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
 
 
 def download_index_files(target_dir):
