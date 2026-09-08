@@ -122,13 +122,13 @@ def load_system():
     mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
 
   # 1. キャッシュがローカルになければクラウドから高速ダウンロード
-  if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
-    download_file_from_cloud(INDEX_URL, index_file)
-    download_file_from_cloud(MAPPING_URL, mapping_file)
+    if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
+      download_file_from_cloud(INDEX_URL, index_file)
+      download_file_from_cloud(MAPPING_URL, mapping_file)
 
   # 2. クラウドから取得した（または既存の）インデックスをロード
-  index = faiss.read_index(index_file)
-  with open(mapping_file, "rb") as f:
+    index = faiss.read_index(index_file)
+    with open(mapping_file, "rb") as f:
     index_to_kofun = pickle.load(f)
 
   return model, index, index_to_kofun, transform, device
