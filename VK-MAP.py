@@ -4,8 +4,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from datetime import datetime
 import pickle
+import shutil
 import faiss
-import gdown  # gdown を使用
+import gdown
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -21,35 +22,68 @@ from torchvision import transforms
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --------------------------------------------------
-# Google Drive のファイルIDを設定
-# ※ 各ファイルの「リンクを共有」から取得できるファイルID（28〜33文字程度の英数字）を貼り付けてください
+# Google Drive の フォルダURL または フォルダID を設定
 # --------------------------------------------------
-INDEX_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"  # kofun_faiss.index の ID
-MAPPING_FILE_ID = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"  # kofun_mapping.pkl の ID
+# フォルダの共有リンク、またはフォルダIDを指定
+GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"
 
 
-def download_from_gdrive(file_id, save_path):
-  """Google Driveからファイル本体を自動ダウンロードする関数"""
-  if not os.path.exists(save_path) or os.path.getsize(save_path) < 1000:
-    url = f"https://drive.google.com/uc?id={file_id}"
-    with st.spinner(
-        f"Downloading {os.path.basename(save_path)} from Google Drive..."
-    ):
-      gdown.download(url, save_path, quiet=False)
+def download_index_folder(folder_url, target_dir):
+  """Google Driveのフォルダ(VK-MAP)から必要ファイルを自動一括ダウンロードする関数"""
+  index_path = os.path.join(target_dir, "kofun_faiss.index")
+  mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
+
+  # 既に正常なファイルが存在する場合はダウンロードをスキップ
+  if (
+      os.path.exists(index_path)
+      and os.path.exists(mapping_path)
+      and os.path.getsize(index_path) > 1000
+  ):
+    return index_path, mapping_path
+
+  os.makedirs(target_dir, exist_ok=True)
+
+  with st.spinner("📦 Downloading VK-MAP folder from Google Drive..."):
+    # フォルダごとダウンロード
+    gdown.download_folder(url=folder_url, output=target_dir, quiet=False)
+
+  # サブフォルダにダウンロードされてしまった場合のパス補正
+  subfolder = os.path.join(target_dir, "VK-MAP")
+  if os.path.exists(subfolder):
+    for fname in os.listdir(subfolder):
+      shutil.move(os.path.join(subfolder, fname), target_dir)
+
+  # ダウンロード後の検証
+  if not os.path.exists(index_path) or not os.path.exists(mapping_path):
+    st.error(
+        "⚠️ フォルダ内に `kofun_faiss.index` または `kofun_mapping.pkl`"
+        " が見つかりませんでした。Google Drive フォルダ内のファイル名を確認してください。"
+    )
+    st.stop()
+
+  # HTML（アクセス権限エラー画面）がダウンロードされていないか検証
+  with open(index_path, "rb") as f:
+    if b"<html" in f.read(100).lower():
+      shutil.rmtree(target_dir, ignore_errors=True)
+      st.error(
+          "⚠️ Google Drive フォルダの取得に失敗しました。"
+          " フォルダの共有設定が「リンクを知っている全員」になっているか確認してください。"
+      )
+      st.stop()
+
+  return index_path, mapping_path
 
 
 # --------------------------------------------------
 # Helper Functions for Path Resolution
 # --------------------------------------------------
 def resolve_path(rel_or_abs_path):
-  """Convert relative paths to script-relative absolute paths."""
   if os.path.isabs(rel_or_abs_path):
     return rel_or_abs_path
   return os.path.join(BASE_DIR, rel_or_abs_path)
 
 
 def find_valid_image_path(original_path, ref_dir_abs):
-  """Fallback mechanism to resolve file path mismatches caused by folder/file renaming."""
   if os.path.exists(original_path):
     return original_path
 
@@ -107,15 +141,12 @@ def load_system():
   ).to(device)
   model.eval()
 
-  cache_dir = os.path.join(BASE_DIR, "cache")
-  os.makedirs(cache_dir, exist_ok=True)
+  cache_dir = os.path.join(BASE_DIR, "cache_vkmap")
 
-  index_file = os.path.join(cache_dir, "kofun_faiss.index")
-  mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
-
-  # Google Drive からダウンロード（初回または破損時）
-  download_from_gdrive(INDEX_FILE_ID, index_file)
-  download_from_gdrive(MAPPING_FILE_ID, mapping_file)
+  # Google Drive の VK-MAP フォルダからファイルを取得
+  index_file, mapping_file = download_index_folder(
+      GDRIVE_FOLDER_URL, cache_dir
+  )
 
   # ロード処理
   index = faiss.read_index(index_file)
