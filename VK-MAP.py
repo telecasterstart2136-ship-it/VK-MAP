@@ -37,6 +37,14 @@ def download_index_files(target_dir):
   index_path = os.path.join(target_dir, "kofun_faiss.index")
   mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
+  # IDが初期値のままの場合は画面上にエラーを表示して安全に停止
+  if "ここに" in INDEX_FILE_ID or "ここに" in MAPPING_FILE_ID:
+    st.error(
+        "⚠️ `INDEX_FILE_ID` または `MAPPING_FILE_ID` が設定されていません。"
+        " Google Drive のファイルIDを入力してください。"
+    )
+    st.stop()
+
   # 既に正常なファイルが存在する場合はダウンロードをスキップ
   if (
       os.path.exists(index_path)
@@ -48,40 +56,23 @@ def download_index_files(target_dir):
   os.makedirs(target_dir, exist_ok=True)
 
   with st.spinner("📦 Downloading index files from Google Drive..."):
-    # kofun_faiss.index の取得
+    # kofun_faiss.index の取得 (id パラメータで指定)
     if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
-      url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
-      gdown.download(
-          url_index, index_path, quiet=False, fuzzy=True, use_cookies=False
-      )
+      gdown.download(id=str(INDEX_FILE_ID), output=index_path, quiet=False)
 
-    # kofun_mapping.pkl の取得
+    # kofun_mapping.pkl の取得 (id パラメータで指定)
     if (
         not os.path.exists(mapping_path)
         or os.path.getsize(mapping_path) <= 1000
     ):
-      url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
-      gdown.download(
-          url_mapping, mapping_path, quiet=False, fuzzy=True, use_cookies=False
-      )
+      gdown.download(id=str(MAPPING_FILE_ID), output=mapping_path, quiet=False)
 
   # ダウンロード後の検証
   if not os.path.exists(index_path) or not os.path.exists(mapping_path):
     st.error("⚠️ Google Drive からのファイルダウンロードに失敗しました。")
     st.stop()
 
-  # HTML（アクセス制限エラー画面）が落ちていないか検証
-  with open(index_path, "rb") as f:
-    if b"<html" in f.read(100).lower():
-      shutil.rmtree(target_dir, ignore_errors=True)
-      st.error(
-          "⚠️ Google Drive ファイルの取得に失敗しました。"
-          " ファイル共有設定が「リンクを知っている全員」になっているか確認してください。"
-      )
-      st.stop()
-
   return index_path, mapping_path
-
 
 # --------------------------------------------------
 # Helper Functions for Path Resolution
