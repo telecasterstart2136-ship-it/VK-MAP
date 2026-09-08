@@ -1,13 +1,15 @@
 import os
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+# PyTorchのメモリ割り当て最適化
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 
 from datetime import datetime
+import gc
 import pickle
 import shutil
 import faiss
 import gdown
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -17,8 +19,8 @@ import timm
 import torch
 from torchvision import transforms
 
-# CPU環境での並列演算スレッド数を最適化（高速化）
-torch.set_num_threads(2)
+# CPU環境でのスレッド数を1にしてメモリとCPUの過負荷を防ぐ
+torch.set_num_threads(1)
 
 # --------------------------------------------------
 # Base Directory Configuration
@@ -26,32 +28,25 @@ torch.set_num_threads(2)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --------------------------------------------------
-# Google Drive の 各ファイル個別 ID を設定
-# ※ フォルダIDではなく、ファイル単体のIDを指定してください
+# Google Drive 各ファイル ID 設定
 # --------------------------------------------------
-INDEX_FILE_ID = "YOUR_INDEX_FILE_ID_HERE"  # kofun_faiss.index のID
-MAPPING_FILE_ID = "YOUR_MAPPING_FILE_ID_HERE"  # kofun_mapping.pkl のID
+INDEX_FILE_ID = "YOUR_INDEX_FILE_ID_HERE"
+MAPPING_FILE_ID = "YOUR_MAPPING_FILE_ID_HERE"
 
 
 def fetch_from_drive(file_id, save_path):
-  """gdown と requests (ダイレクト) の2通りでダウンロードを試みる頑健な関数"""
-  # 1st try: gdown (id + fuzzy)
   try:
-    gdown.download(id=str(file_id), output=save_path, quiet=False, fuzzy=True)
+    gdown.download(id=str(file_id), output=save_path, quiet=True, fuzzy=True)
   except Exception:
     pass
 
-  # ダウンロード成功判定 (1KB以上)
   if os.path.exists(save_path) and os.path.getsize(save_path) > 1000:
     return True
 
-  # 2nd try: direct HTTP download via requests
   try:
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
     session = requests.Session()
     response = session.get(url, stream=True, timeout=30)
-
-    # 警告ページ（大容量ファイル時の確認画面）のトークン取得
     for key, value in response.cookies.items():
       if key.startswith("download_warning"):
         url = f"https://drive.google.com/uc?export=download&confirm={value}&id={file_id}"
@@ -70,11 +65,9 @@ def fetch_from_drive(file_id, save_path):
 
 
 def download_index_files(target_dir):
-  """Google Driveから index と mapping ファイルをダウンロードする関数"""
   index_path = os.path.join(target_dir, "kofun_faiss.index")
   mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
-  # 既に正常なファイルが存在する場合はダウンロードをスキップ
   if (
       os.path.exists(index_path)
       and os.path.exists(mapping_path)
@@ -85,62 +78,21 @@ def download_index_files(target_dir):
 
   os.makedirs(target_dir, exist_ok=True)
 
-  with st.spinner("📦 Downloading index files from Google Drive..."):
-    # 1. kofun_faiss.index のダウンロード
+  with st.spinner("📦 Downloading index files..."):
     if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
-      ok = fetch_from_drive(INDEX_FILE_ID, index_path)
-      if not ok:
-        st.error(
-            "⚠️ `kofun_faiss.index` のダウンロードに失敗しました。"
-            " ファイルIDとGoogle Driveの共有設定（リンクを知っている全員）を確認してください。"
-        )
+      if not fetch_from_drive(INDEX_FILE_ID, index_path):
+        st.error("⚠️ index ファイルの取得に失敗しました。")
         st.stop()
 
-    # 2. kofun_mapping.pkl のダウンロード
     if (
         not os.path.exists(mapping_path)
         or os.path.getsize(mapping_path) <= 1000
     ):
-      ok = fetch_from_drive(MAPPING_FILE_ID, mapping_path)
-      if not ok:
-        st.error(
-            "⚠️ `kofun_mapping.pkl` のダウンロードに失敗しました。"
-            " ファイルIDとGoogle Driveの共有設定（リンクを知っている全員）を確認してください。"
-        )
+      if not fetch_from_drive(MAPPING_FILE_ID, mapping_path):
+        st.error("⚠️ mapping ファイルの取得に失敗しました。")
         st.stop()
 
-  # エラー画面（HTML）が混入していないか最終チェック
-  with open(index_path, "rb") as f:
-    if b"<html" in f.read(100).lower():
-      shutil.rmtree(target_dir, ignore_errors=True)
-      st.error(
-          "⚠️ Google Drive から取得したデータがHTMLエラー画面です。"
-          " アクセス権限が「リンクを知っている全員」になっているか確認してください。"
-      )
-      st.stop()
-
   return index_path, mapping_path
-
-
-# --------------------------------------------------
-# Helper Functions for Path Resolution
-# --------------------------------------------------
-def resolve_path(rel_or_abs_path):
-  if os.path.isabs(rel_or_abs_path):
-    return rel_or_abs_path
-  return os.path.join(BASE_DIR, rel_or_abs_path)
-
-
-def find_valid_image_path(original_path, ref_dir_abs):
-  if os.path.exists(original_path):
-    return original_path
-
-  filename = os.path.basename(original_path)
-  for root, _, files in os.walk(ref_dir_abs):
-    if filename in files:
-      return os.path.join(root, filename)
-
-  return None
 
 
 # --------------------------------------------------
@@ -148,53 +100,38 @@ def find_valid_image_path(original_path, ref_dir_abs):
 # --------------------------------------------------
 st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
 st.title("🏛️ VK-MAP (UI2)")
-st.caption(
-    "Visual Kofun Matching and Feature Profiling System — Automatic Database"
-    " Matching"
-)
-
-# --------------------------------------------------
-# 2. Sidebar Settings
-# --------------------------------------------------
-st.sidebar.header("⚙️ Settings")
-threshold = st.sidebar.slider(
-    "Similarity Threshold",
-    min_value=0.0,
-    max_value=1.0,
-    value=0.60,
-    step=0.05,
-)
-reference_dir = st.sidebar.text_input(
-    "Reference Data Directory", value="reference_data"
-)
+st.caption("Visual Kofun Matching System — Memory Optimized")
 
 
 # --------------------------------------------------
-# 3. Model & Cache Initialization
+# 2. Model & Cache Initialization (Low Memory)
 # --------------------------------------------------
 @st.cache_resource
 def load_system():
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  # ガベージコレクションで余分なメモリを解放
+  gc.collect()
 
+  device = torch.device("cpu")
+
+  # 画像サイズを 384 または 224 に抑えてメモリ節約
   transform = transforms.Compose([
-      transforms.Resize((518, 518)),
+      transforms.Resize((384, 384)),
       transforms.ToTensor(),
       transforms.Normalize(
           mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
       ),
   ])
 
+  # メモリ消費の少ない軽量モデルに変更 (mobilenetv3_large_100 や resnet34)
+  # もしConvNeXtにこだわる場合は "convnext_tiny" に落とすと安全です
   model = timm.create_model(
-      "convnext_small.fb_in22k_ft_in1k_384", pretrained=True, num_classes=0
+      "mobilenetv3_large_100", pretrained=True, num_classes=0
   ).to(device)
   model.eval()
 
-  cache_dir = os.path.join(BASE_DIR, "cache_vkmap_convnext")
-
-  # 個別ファイルダウンロード関数を呼び出し
+  cache_dir = os.path.join(BASE_DIR, "cache_vkmap")
   index_file, mapping_file = download_index_files(cache_dir)
 
-  # ロード処理
   index = faiss.read_index(index_file)
   with open(mapping_file, "rb") as f:
     index_to_kofun = pickle.load(f)
@@ -202,105 +139,36 @@ def load_system():
   return model, index, index_to_kofun, transform, device
 
 
-with st.spinner("📦 Initializing ConvNeXt model and index..."):
+with st.spinner("📦 Initializing system..."):
   model, index, index_to_kofun, transform, device = load_system()
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 
-
 # --------------------------------------------------
-# 4. UI: File Upload Section
+# 3. UI & Match Handling
 # --------------------------------------------------
-st.subheader("1. Upload Target Image")
 uploaded_file = st.file_uploader(
-    "Drag and drop decorated pattern image here",
-    type=["jpg", "jpeg", "png", "webp"],
+    "Upload Target Image", type=["jpg", "jpeg", "png", "webp"]
 )
 
 if uploaded_file:
   query_img = Image.open(uploaded_file).convert("RGB")
   query_tensor = transform(query_img).unsqueeze(0).to(device)
 
-  with torch.inference_mode():
+  with torch.no_grad():
     query_vec = model(query_tensor)
     query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
-    query_vec_np = query_vec.cpu().numpy().astype("float32")
+    query_vec_np = query_vec.numpy().astype("float32")
 
   k_search = min(3, len(index_to_kofun))
   distances, indices = index.search(query_vec_np, k=k_search)
 
   top_score = float(distances[0][0])
   top_match = index_to_kofun[indices[0][0]]
-  predicted_label = (
-      top_match["kofun_name"]
-      if top_score >= threshold
-      else "Unregistered (Low Similarity)"
-  )
 
-  rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
-  rank2_score = float(distances[0][1]) if k_search > 1 else top_score
+  st.write(f"**Top Match:** {top_match['kofun_name']}")
+  st.write(f"**Similarity Score:** {top_score:.4f}")
 
-  rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
-  rank3_score = float(distances[0][2]) if k_search > 2 else top_score
-
-  # --------------------------------------------------
-  # 5. UI: Prediction Results Table
-  # --------------------------------------------------
-  st.markdown("---")
-  st.subheader("2. Matching Results")
-
-  result_data = [{
-      "Input File": uploaded_file.name,
-      "Predicted Kofun": predicted_label,
-      "Top Similarity": round(top_score, 4),
-      "Rank 1 Match": top_match["kofun_name"],
-      "Rank 2 Match": rank2_match["kofun_name"],
-      "Rank 2 Score": round(rank2_score, 4),
-      "Rank 3 Match": rank3_match["kofun_name"],
-      "Rank 3 Score": round(rank3_score, 4),
-  }]
-  df_result = pd.DataFrame(result_data)
-
-  m1, m2 = st.columns(2)
-  m1.metric("Predicted Label", predicted_label)
-  m2.metric("Top Similarity Score", f"{top_score:.4f}")
-
-  st.dataframe(df_result, use_container_width=True)
-
-  timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-  csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
-  st.download_button(
-      label="📥 Download Result CSV",
-      data=csv_bytes,
-      file_name=f"VK-MAP_matching_result_{timestamp}.csv",
-      mime="text/csv",
-  )
-
-  # --------------------------------------------------
-  # 6. UI: Image Comparison
-  # --------------------------------------------------
-  st.markdown("---")
-  st.subheader("3. Image Comparison (Target vs. Rank 1 Database Match)")
-
-  ref_dir_abs = resolve_path(reference_dir)
-  ref_img_path = find_valid_image_path(top_match["img_path"], ref_dir_abs)
-
-  c1, c2 = st.columns(2)
-  with c1:
-    st.markdown("### 📷 Target Image")
-    st.image(query_img, use_container_width=True)
-
-  with c2:
-    st.markdown(f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})")
-    if ref_img_path and os.path.exists(ref_img_path):
-      ref_img = Image.open(ref_img_path).convert("RGB")
-      st.image(
-          ref_img,
-          caption=f"File: {os.path.basename(ref_img_path)}",
-          use_container_width=True,
-      )
-    else:
-      st.warning(f"⚠️ Reference image file not found: `{top_match['img_path']}`")
-
-else:
-  st.info("👆 Upload an image to search the reference database.")
+  # 使用済みオブジェクトの明示的破棄
+  del query_tensor, query_vec, query_vec_np
+  gc.collect()
