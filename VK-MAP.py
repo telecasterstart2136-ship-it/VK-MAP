@@ -26,7 +26,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --------------------------------------------------
 # Google Drive の フォルダURL 設定
 # --------------------------------------------------
-GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"
+GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=sharing"
 
 
 def fetch_from_url(url, save_path):
