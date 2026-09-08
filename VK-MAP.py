@@ -131,7 +131,7 @@ def load_system():
       with open(mapping_file, "rb") as f:
          index_to_kofun = pickle.load(f)
 
-  return model, index, index_to_kofun, transform, device
+      return model, index, index_to_kofun, transform, device
 
 
 with st.spinner("📦 Initializing DINOv2 model and index..."):
