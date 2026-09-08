@@ -30,8 +30,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --------------------------------------------------
 # Google Drive 各ファイル ID 設定
 # --------------------------------------------------
-INDEX_FILE_ID = "1--v82kQZ_2SdrO0xIsS3mEwR1q4XzD1f"
-MAPPING_FILE_ID = "1--v82kQZ_2SdrO0xIsS3mEwR1q4XzD1f"
+INDEX_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+MAPPING_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
 
 
 def fetch_from_drive(file_id, save_path):
