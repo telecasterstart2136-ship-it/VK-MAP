@@ -19,6 +19,29 @@ from torchvision import transforms
 # --------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+INDEX_URL = "https://drive.google.com/drive/u/2/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+MAPPING_URL = "https://drive.google.com/drive/u/2/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+
+
+def download_file_from_cloud(url, save_path):
+  """クラウドからファイルをダウンロードする関数"""
+  if not os.path.exists(save_path):
+    with st.spinner(
+        f"Downloading {os.path.basename(save_path)} from cloud..."
+    ):
+      urllib.request.urlretrieve(url, save_path)
+
+
+@st.cache_resource
+def load_system():
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  transform = transforms.Compose([
+      transforms.Resize((518, 518)),
+      transforms.ToTensor(),
+      transforms.Normalize(
+          mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+      ),
+  ])
 # --------------------------------------------------
 # 1. Page Configuration
 # --------------------------------------------------
@@ -85,103 +108,34 @@ def load_system(ref_dir_input):
   ])
 
   # Load DINOv2 Model
-  model = timm.create_model(
+model = timm.create_model(
       "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
   ).to(device)
   model.eval()
 
-  ref_dir_abs = resolve_path(ref_dir_input)
-  cache_dir = resolve_path("cache")
+  cache_dir = os.path.join(BASE_DIR, "cache")
   os.makedirs(cache_dir, exist_ok=True)
 
   index_file = os.path.join(cache_dir, "kofun_faiss.index")
   mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
 
-  # If index files don't exist, build them automatically from reference directory
+  # 1. キャッシュがローカルになければクラウドから高速ダウンロード
   if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
-    if not os.path.exists(ref_dir_abs):
-      st.error(
-          f"⚠️ Directory '{ref_dir_abs}' not found. Please check your reference"
-          " data directory settings."
-      )
-      st.stop()
+    download_file_from_cloud(INDEX_URL, index_file)
+    download_file_from_cloud(MAPPING_URL, mapping_file)
 
-    features = []
-    index_to_kofun = {}
-    valid_extensions = (".jpg", ".jpeg", ".png", ".webp")
+  # 2. クラウドから取得した（または既存の）インデックスをロード
+  index = faiss.read_index(index_file)
+  with open(mapping_file, "rb") as f:
+    index_to_kofun = pickle.load(f)
 
-    image_paths = []
-    for root, _, files in os.walk(ref_dir_abs):
-      for file in files:
-        if file.lower().endswith(valid_extensions):
-          image_paths.append(os.path.join(root, file))
-
-    if not image_paths:
-      st.error(f"⚠️ No valid images found in '{ref_dir_abs}'.")
-      st.stop()
-
-    progress_bar = st.progress(
-        0,
-        text=(
-            f"Building reference feature database for {len(image_paths)} images"
-            "..."
-        ),
-    )
-    for idx, img_path in enumerate(image_paths):
-      try:
-        img = Image.open(img_path).convert("RGB")
-        tensor = transform(img).unsqueeze(0).to(device)
-
-        with torch.no_grad():
-          feat = model(tensor)
-          feat = feat / feat.norm(p=2, dim=-1, keepdim=True)
-          feat_np = feat.cpu().numpy().astype("float32")
-
-        features.append(feat_np[0])
-        kofun_name = os.path.basename(os.path.dirname(img_path))
-        index_to_kofun[idx] = {"kofun_name": kofun_name, "img_path": img_path}
-      except Exception as e:
-        st.warning(f"Skipped corrupt image {img_path}: {e}")
-
-      progress_bar.progress((idx + 1) / len(image_paths))
-    progress_bar.empty()
-
-    # Build FAISS index
-    feat_dim = features[0].shape[0]
-    index = faiss.IndexFlatIP(feat_dim)
-    index.add(np.array(features))
-
-    # Save cache
-    faiss.write_index(index, index_file)
-    with open(mapping_file, "wb") as f:
-      pickle.dump(index_to_kofun, f)
-
-  else:
-    index = faiss.read_index(index_file)
-    with open(mapping_file, "rb") as f:
-      index_to_kofun = pickle.load(f)
-
-  return model, index, index_to_kofun, transform, device, ref_dir_abs
+  return model, index, index_to_kofun, transform, device
 
 
-# 再構築ボタンが押された場合、キャッシュをクリアし既存のindex/pklファイルを物理削除する
-if rebuild_db:
-  st.cache_resource.clear()
-  cache_dir_path = resolve_path("cache")
-  idx_p = os.path.join(cache_dir_path, "kofun_faiss.index")
-  map_p = os.path.join(cache_dir_path, "kofun_mapping.pkl")
-  if os.path.exists(idx_p):
-    os.remove(idx_p)
-  if os.path.exists(map_p):
-    os.remove(map_p)
+with st.spinner("📦 Initializing DINOv2 model and index..."):
+  model, index, index_to_kofun, transform, device = load_system()
 
-with st.spinner("📦 Initializing DINOv2 model and reference database..."):
-  model, index, index_to_kofun, transform, device, ref_dir_abs = load_system(
-      reference_dir
-  )
-
-st.success(f"✅ System Ready ({len(index_to_kofun)} reference features loaded)")
-
+st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 
 # --------------------------------------------------
 # 4. Attention Map Generator
