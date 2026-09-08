@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
+import requests
 import streamlit as st
 import timm
 import torch
@@ -25,23 +26,60 @@ torch.set_num_threads(2)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --------------------------------------------------
-# Google Drive の 各ファイル ID を設定
-# （取得した実際のファイルIDに書き換えてください）
+# Google Drive の 各ファイル個別 ID を設定
+# ※ フォルダIDではなく、ファイル単体のIDを指定してください
 # --------------------------------------------------
-INDEX_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
-MAPPING_FILE_ID = "1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m"
+INDEX_FILE_ID = "YOUR_INDEX_FILE_ID_HERE"  # kofun_faiss.index のID
+MAPPING_FILE_ID = "YOUR_MAPPING_FILE_ID_HERE"  # kofun_mapping.pkl のID
+
+
+def fetch_from_drive(file_id, save_path):
+  """gdown と requests (ダイレクト) の2通りでダウンロードを試みる頑健な関数"""
+  # 1st try: gdown (id + fuzzy)
+  try:
+    gdown.download(id=str(file_id), output=save_path, quiet=False, fuzzy=True)
+  except Exception:
+    pass
+
+  # ダウンロード成功判定 (1KB以上)
+  if os.path.exists(save_path) and os.path.getsize(save_path) > 1000:
+    return True
+
+  # 2nd try: direct HTTP download via requests
+  try:
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    session = requests.Session()
+    response = session.get(url, stream=True, timeout=30)
+
+    # 警告ページ（大容量ファイル時の確認画面）のトークン取得
+    for key, value in response.cookies.items():
+      if key.startswith("download_warning"):
+        url = f"https://drive.google.com/uc?export=download&confirm={value}&id={file_id}"
+        response = session.get(url, stream=True, timeout=30)
+        break
+
+    if response.status_code == 200:
+      with open(save_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=32768):
+          if chunk:
+            f.write(chunk)
+  except Exception:
+    pass
+
+  return os.path.exists(save_path) and os.path.getsize(save_path) > 1000
 
 
 def download_index_files(target_dir):
-  """Google Driveから index と mapping ファイルを個別に直接ダウンロードする関数"""
+  """Google Driveから index と mapping ファイルをダウンロードする関数"""
   index_path = os.path.join(target_dir, "kofun_faiss.index")
   mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
-  # 既に正常なファイルが存在する場合はダウンロードをスキップ (1KB以上)
+  # 既に正常なファイルが存在する場合はダウンロードをスキップ
   if (
       os.path.exists(index_path)
       and os.path.exists(mapping_path)
       and os.path.getsize(index_path) > 1000
+      and os.path.getsize(mapping_path) > 1000
   ):
     return index_path, mapping_path
 
@@ -50,37 +88,40 @@ def download_index_files(target_dir):
   with st.spinner("📦 Downloading index files from Google Drive..."):
     # 1. kofun_faiss.index のダウンロード
     if not os.path.exists(index_path) or os.path.getsize(index_path) <= 1000:
-      url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
-      gdown.download(
-          url=url_index, output=index_path, quiet=False, fuzzy=True
-      )
+      ok = fetch_from_drive(INDEX_FILE_ID, index_path)
+      if not ok:
+        st.error(
+            "⚠️ `kofun_faiss.index` のダウンロードに失敗しました。"
+            " ファイルIDとGoogle Driveの共有設定（リンクを知っている全員）を確認してください。"
+        )
+        st.stop()
 
     # 2. kofun_mapping.pkl のダウンロード
     if (
         not os.path.exists(mapping_path)
         or os.path.getsize(mapping_path) <= 1000
     ):
-      url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
-      gdown.download(
-          url=url_mapping, output=mapping_path, quiet=False, fuzzy=True
-      )
+      ok = fetch_from_drive(MAPPING_FILE_ID, mapping_path)
+      if not ok:
+        st.error(
+            "⚠️ `kofun_mapping.pkl` のダウンロードに失敗しました。"
+            " ファイルIDとGoogle Driveの共有設定（リンクを知っている全員）を確認してください。"
+        )
+        st.stop()
 
-  # ダウンロード後の存在チェック
-  if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-    st.error("⚠️ Google Drive からのファイルダウンロードに失敗しました。")
-    st.stop()
-
-  # エラー画面（HTML）が保存されていないか確認
+  # エラー画面（HTML）が混入していないか最終チェック
   with open(index_path, "rb") as f:
     if b"<html" in f.read(100).lower():
       shutil.rmtree(target_dir, ignore_errors=True)
       st.error(
-          "⚠️ Google Drive ファイルの取得に失敗しました。"
-          " 各ファイル単体のアクセス権限が「リンクを知っている全員」になっているか確認してください。"
+          "⚠️ Google Drive から取得したデータがHTMLエラー画面です。"
+          " アクセス権限が「リンクを知っている全員」になっているか確認してください。"
       )
       st.stop()
 
   return index_path, mapping_path
+
+
 # --------------------------------------------------
 # Helper Functions for Path Resolution
 # --------------------------------------------------
