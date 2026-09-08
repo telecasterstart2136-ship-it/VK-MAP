@@ -16,6 +16,9 @@ import timm
 import torch
 from torchvision import transforms
 
+# CPU環境での並列演算スレッド数を最適化（高速化）
+torch.set_num_threads(2)
+
 # --------------------------------------------------
 # Base Directory Configuration
 # --------------------------------------------------
@@ -24,7 +27,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --------------------------------------------------
 # Google Drive の フォルダURL または フォルダID を設定
 # --------------------------------------------------
-# フォルダの共有リンク、またはフォルダIDを指定
 GDRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1ZKlD7uHexASfGBsyKIzNAtVC83f2xS4m?usp=share_link"
 
 
@@ -44,7 +46,6 @@ def download_index_folder(folder_url, target_dir):
   os.makedirs(target_dir, exist_ok=True)
 
   with st.spinner("📦 Downloading VK-MAP folder from Google Drive..."):
-    # フォルダごとダウンロード
     gdown.download_folder(url=folder_url, output=target_dir, quiet=False)
 
   # サブフォルダにダウンロードされてしまった場合のパス補正
@@ -101,7 +102,7 @@ def find_valid_image_path(original_path, ref_dir_abs):
 st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
 st.title("🏛️ VK-MAP (UI2)")
 st.caption(
-    "Visual Kofun Matching and Attention Profiling System — Automatic Database"
+    "Visual Kofun Matching and Feature Profiling System — Automatic Database"
     " Matching"
 )
 
@@ -127,6 +128,8 @@ reference_dir = st.sidebar.text_input(
 @st.cache_resource
 def load_system():
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+  # 解像度は 518x518 をそのまま維持
   transform = transforms.Compose([
       transforms.Resize((518, 518)),
       transforms.ToTensor(),
@@ -135,13 +138,14 @@ def load_system():
       ),
   ])
 
-  # DINOv2 モデルの読み込み
+  # 高速・軽量CNNモデル (ConvNeXt Small) に差し替え
   model = timm.create_model(
-      "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
+      "convnext_small.fb_in22k_ft_in1k_384", pretrained=True, num_classes=0
   ).to(device)
   model.eval()
 
-  cache_dir = os.path.join(BASE_DIR, "cache_vkmap")
+  # キャッシュフォルダ名を変更（古いDINOv2用のキャッシュと混ざるのを防止）
+  cache_dir = os.path.join(BASE_DIR, "cache_vkmap_convnext")
 
   # Google Drive の VK-MAP フォルダからファイルを取得
   index_file, mapping_file = download_index_folder(
@@ -156,71 +160,14 @@ def load_system():
   return model, index, index_to_kofun, transform, device
 
 
-with st.spinner("📦 Initializing DINOv2 model and index..."):
+with st.spinner("📦 Initializing ConvNeXt model and index..."):
   model, index, index_to_kofun, transform, device = load_system()
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 
 
 # --------------------------------------------------
-# 4. Attention Map Generator
-# --------------------------------------------------
-def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
-  patch_size = 14
-  w, h = input_tensor.shape[2], input_tensor.shape[3]
-  w_featmap, h_featmap = w // patch_size, h // patch_size
-
-  attentions = None
-
-  def hook_fn(module, input, output):
-    nonlocal attentions
-    attentions = output
-
-  handle = model.blocks[-1].attn.qkv.register_forward_hook(hook_fn)
-  with torch.no_grad():
-    _ = model(input_tensor)
-  handle.remove()
-
-  if attentions is None:
-    return None
-
-  B, N, C = attentions.shape
-  qkv = (
-      attentions.reshape(
-          B,
-          N,
-          3,
-          model.blocks[-1].attn.num_heads,
-          C // (3 * model.blocks[-1].attn.num_heads),
-      ).permute(2, 0, 3, 1, 4)
-  )
-  q, k = qkv[0], qkv[1]
-
-  scale = (C // (3 * model.blocks[-1].attn.num_heads)) ** -0.5
-  attn = (q @ k.transpose(-2, -1)) * scale
-  attn = attn.softmax(dim=-1)
-
-  cls_attn = (
-      attn[0, :, 0, 1:].mean(dim=0).reshape(w_featmap, h_featmap).cpu().numpy()
-  )
-  cls_attn_resized = np.array(
-      Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC)
-  )
-  cls_attn_norm = (cls_attn_resized - cls_attn_resized.min()) / (
-      cls_attn_resized.max() - cls_attn_resized.min() + 1e-8
-  )
-
-  fig, ax = plt.subplots(figsize=(5, 5))
-  ax.imshow(img_pil)
-  ax.imshow(cls_attn_norm, cmap="jet", alpha=0.5)
-  ax.set_title(title, fontsize=10)
-  ax.axis("off")
-  plt.tight_layout()
-  return fig
-
-
-# --------------------------------------------------
-# 5. UI: File Upload Section
+# 4. UI: File Upload Section
 # --------------------------------------------------
 st.subheader("1. Upload Target Image")
 uploaded_file = st.file_uploader(
@@ -232,8 +179,8 @@ if uploaded_file:
   query_img = Image.open(uploaded_file).convert("RGB")
   query_tensor = transform(query_img).unsqueeze(0).to(device)
 
-  # Search in Database
-  with torch.no_grad():
+  # 特徴量抽出と類似度検索（torch.inference_mode で高速化）
+  with torch.inference_mode():
     query_vec = model(query_tensor)
     query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
     query_vec_np = query_vec.cpu().numpy().astype("float32")
@@ -256,7 +203,7 @@ if uploaded_file:
   rank3_score = float(distances[0][2]) if k_search > 2 else top_score
 
   # --------------------------------------------------
-  # 6. UI: Prediction Results Table
+  # 5. UI: Prediction Results Table
   # --------------------------------------------------
   st.markdown("---")
   st.subheader("2. Matching Results")
@@ -290,57 +237,30 @@ if uploaded_file:
   )
 
   # --------------------------------------------------
-  # 7. UI: Attention Heatmap Comparison
+  # 6. UI: Image Comparison
   # --------------------------------------------------
   st.markdown("---")
-  st.subheader(
-      "3. Attention Map Profiling (Target vs. Rank 1 Database Match)"
-  )
+  st.subheader("3. Image Comparison (Target vs. Rank 1 Database Match)")
 
   ref_dir_abs = resolve_path(reference_dir)
   ref_img_path = find_valid_image_path(top_match["img_path"], ref_dir_abs)
 
-  if ref_img_path and os.path.exists(ref_img_path):
-    ref_img = Image.open(ref_img_path).convert("RGB")
-    ref_tensor = transform(ref_img).unsqueeze(0).to(device)
+  c1, c2 = st.columns(2)
+  with c1:
+    st.markdown("### 📷 Target Image")
+    st.image(query_img, use_container_width=True)
 
-    with st.spinner("Generating attention heatmaps..."):
-      fig_query = generate_heatmap_fig(
-          query_img,
-          query_tensor,
-          model,
-          title=f"Target: {uploaded_file.name}",
-      )
-      fig_ref = generate_heatmap_fig(
-          ref_img,
-          ref_tensor,
-          model,
-          title=f"Top 1 Match: {top_match['kofun_name']}",
-      )
-
-    c1, c2 = st.columns(2)
-    with c1:
-      st.markdown("### 📷 Target Image")
-      st.image(query_img, use_container_width=True)
-      if fig_query:
-        st.pyplot(fig_query)
-
-    with c2:
-      st.markdown(
-          f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})"
-      )
+  with c2:
+    st.markdown(f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})")
+    if ref_img_path and os.path.exists(ref_img_path):
+      ref_img = Image.open(ref_img_path).convert("RGB")
       st.image(
           ref_img,
           caption=f"File: {os.path.basename(ref_img_path)}",
           use_container_width=True,
       )
-      if fig_ref:
-        st.pyplot(fig_ref)
-  else:
-    st.error(f"⚠️ Reference image file not found: `{top_match['img_path']}`")
+    else:
+      st.warning(f"⚠️ Reference image file not found: `{top_match['img_path']}`")
 
 else:
-  st.info(
-      "👆 Upload an image to search the reference database and view attention"
-      " map profiling."
-  )
+  st.info("👆 Upload an image to search the reference database.")
