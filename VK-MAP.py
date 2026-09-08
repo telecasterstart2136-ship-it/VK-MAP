@@ -118,8 +118,8 @@ def load_system():
     os.makedirs(cache_dir, exist_ok=True)
 
 
-  index_file = os.path.join(cache_dir, "kofun_faiss.index")
-  mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
+    index_file = os.path.join(cache_dir, "kofun_faiss.index")
+    mapping_file = os.path.join(cache_dir, "kofun_mapping.pkl")
 
   # 1. キャッシュがローカルになければクラウドから高速ダウンロード
   if not (os.path.exists(index_file) and os.path.exists(mapping_file)):
