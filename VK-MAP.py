@@ -25,8 +25,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --------------------------------------------------
 # Google Drive ファイルID 設定
 # --------------------------------------------------
-# 各ファイルの右クリック > 「リンクをコピー」に含まれるIDを設定してください
-# 例: https://drive.google.com/file/d/1A2B3C.../view -> "1A2B3C..."
 INDEX_FILE_ID = "1vPuqhU6fr1O_ldVzGYj7stbj-aDAkFxL"
 MAPPING_FILE_ID = "1U0nUqZsX77Snq2J8RmCfv26E1k1vMCe4"
 
@@ -36,9 +34,8 @@ def download_db_files(target_dir):
   index_path = os.path.join(target_dir, "kofun_faiss.index")
   mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
-  MIN_INDEX_SIZE = 1000  # 正常ファイル判定用サイズ（バイト）
+  MIN_INDEX_SIZE = 1000
 
-  # 既に正常なファイルが存在する場合はダウンロードをスキップ
   if (
       os.path.exists(index_path)
       and os.path.exists(mapping_path)
@@ -49,17 +46,14 @@ def download_db_files(target_dir):
   os.makedirs(target_dir, exist_ok=True)
 
   with st.spinner("📦 Downloading VK-MAP database from Google Drive..."):
-    # 1. kofun_faiss.index の取得
     if not os.path.exists(index_path) or os.path.getsize(index_path) <= MIN_INDEX_SIZE:
       url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
-      gdown.download(url_index, index_path, quiet=False)
+      gdown.download(url_index, index_path, quiet=False, fuzzy=True)
 
-    # 2. kofun_mapping.pkl の取得
     if not os.path.exists(mapping_path) or os.path.getsize(mapping_path) <= MIN_INDEX_SIZE:
       url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
-      gdown.download(url_mapping, mapping_path, quiet=False)
+      gdown.download(url_mapping, mapping_path, quiet=False, fuzzy=True)
 
-  # ダウンロード後のファイル存在確認
   if not os.path.exists(index_path) or not os.path.exists(mapping_path):
     st.error(
         "⚠️ データベースファイルの取得に失敗しました。\n"
@@ -67,7 +61,6 @@ def download_db_files(target_dir):
     )
     st.stop()
 
-  # HTML（権限エラー画面など）が取得されていないか確認
   try:
     with open(index_path, "rb") as f:
       header = f.read(100).lower()
@@ -140,7 +133,7 @@ reference_dir = st.sidebar.text_input(
 # --------------------------------------------------
 @st.cache_resource
 def load_system():
-  device = torch.device("cpu")  # Streamlit Cloudでの動作安定化のためCPU固定
+  device = torch.device("cpu")
   transform = transforms.Compose([
       transforms.Resize((518, 518)),
       transforms.ToTensor(),
@@ -149,18 +142,14 @@ def load_system():
       ),
   ])
 
-  # DINOv2 モデルの読み込み
   model = timm.create_model(
       "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
   ).to(device)
   model.eval()
 
   cache_dir = os.path.join(BASE_DIR, "cache_vkmap_dinov2")
-
-  # 個別ファイルダウンロード関数を使用
   index_file, mapping_file = download_db_files(cache_dir)
 
-  # インデックスとマッピング情報のロード
   index = faiss.read_index(index_file)
   with open(mapping_file, "rb") as f:
     index_to_kofun = pickle.load(f)
@@ -232,72 +221,83 @@ def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
 
 
 # --------------------------------------------------
-# 5. UI: File Upload Section
+# 5. UI: File Upload Section (Multiple Files Supported)
 # --------------------------------------------------
-st.subheader("1. Upload Target Image")
-uploaded_file = st.file_uploader(
-    "Drag and drop decorated pattern image here",
+st.subheader("1. Upload Target Images")
+uploaded_files = st.file_uploader(
+    "Drag and drop decorated pattern images here",
     type=["jpg", "jpeg", "png", "webp"],
+    accept_multiple_files=True,  # 複数選択を許可
 )
 
-if uploaded_file:
-  query_img = Image.open(uploaded_file).convert("RGB")
-  query_tensor = transform(query_img).unsqueeze(0).to(device)
+if uploaded_files:
+  all_results = []
+  processed_data = []
 
-  # Search in Database
-  with torch.no_grad():
-    query_vec = model(query_tensor)
-    query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
-    query_vec_np = query_vec.cpu().numpy().astype("float32")
+  with st.spinner(f"Processing {len(uploaded_files)} image(s)..."):
+    for uploaded_file in uploaded_files:
+      query_img = Image.open(uploaded_file).convert("RGB")
+      query_tensor = transform(query_img).unsqueeze(0).to(device)
 
-  k_search = min(3, len(index_to_kofun))
-  distances, indices = index.search(query_vec_np, k=k_search)
+      # Search in Database
+      with torch.no_grad():
+        query_vec = model(query_tensor)
+        query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
+        query_vec_np = query_vec.cpu().numpy().astype("float32")
 
-  top_score = float(distances[0][0])
-  top_match = index_to_kofun[indices[0][0]]
-  predicted_label = (
-      top_match["kofun_name"]
-      if top_score >= threshold
-      else "Unregistered (Low Similarity)"
-  )
+      k_search = min(3, len(index_to_kofun))
+      distances, indices = index.search(query_vec_np, k=k_search)
 
-  rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
-  rank2_score = float(distances[0][1]) if k_search > 1 else top_score
+      top_score = float(distances[0][0])
+      top_match = index_to_kofun[indices[0][0]]
+      predicted_label = (
+          top_match["kofun_name"]
+          if top_score >= threshold
+          else "Unregistered (Low Similarity)"
+      )
 
-  rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
-  rank3_score = float(distances[0][2]) if k_search > 2 else top_score
+      rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
+      rank2_score = float(distances[0][1]) if k_search > 1 else top_score
+
+      rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
+      rank3_score = float(distances[0][2]) if k_search > 2 else top_score
+
+      all_results.append({
+          "Input File": uploaded_file.name,
+          "Predicted Kofun": predicted_label,
+          "Top Similarity": round(top_score, 4),
+          "Rank 1 Match": top_match["kofun_name"],
+          "Rank 2 Match": rank2_match["kofun_name"],
+          "Rank 2 Score": round(rank2_score, 4),
+          "Rank 3 Match": rank3_match["kofun_name"],
+          "Rank 3 Score": round(rank3_score, 4),
+      })
+
+      processed_data.append({
+          "file_name": uploaded_file.name,
+          "query_img": query_img,
+          "query_tensor": query_tensor,
+          "top_match": top_match,
+      })
+
+      del query_vec, query_vec_np
 
   # --------------------------------------------------
   # 6. UI: Prediction Results Table
   # --------------------------------------------------
   st.markdown("---")
-  st.subheader("2. Matching Results")
+  st.subheader("2. Matching Results Summary")
 
-  result_data = [{
-      "Input File": uploaded_file.name,
-      "Predicted Kofun": predicted_label,
-      "Top Similarity": round(top_score, 4),
-      "Rank 1 Match": top_match["kofun_name"],
-      "Rank 2 Match": rank2_match["kofun_name"],
-      "Rank 2 Score": round(rank2_score, 4),
-      "Rank 3 Match": rank3_match["kofun_name"],
-      "Rank 3 Score": round(rank3_score, 4),
-  }]
-  df_result = pd.DataFrame(result_data)
-
-  m1, m2 = st.columns(2)
-  m1.metric("Predicted Label", predicted_label)
-  m2.metric("Top Similarity Score", f"{top_score:.4f}")
-
+  df_result = pd.DataFrame(all_results)
   st.dataframe(df_result, use_container_width=True)
 
   # CSV Download Button
   timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
   csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
   st.download_button(
-      label="📥 Download Result CSV",
+      label="📥 Download All Results CSV",
       data=csv_bytes,
-      file_name=f"VK-MAP_matching_result_{timestamp}.csv",
+      file_name=f"VK-MAP_matching_results_{timestamp}.csv",
       mime="text/csv",
   )
 
@@ -305,59 +305,75 @@ if uploaded_file:
   # 7. UI: Attention Heatmap Comparison
   # --------------------------------------------------
   st.markdown("---")
-  st.subheader("3. Attention Map Profiling (Target vs. Rank 1 Database Match)")
+  st.subheader("3. Attention Map Profiling Per Image")
 
   ref_dir_abs = resolve_path(reference_dir)
-  img_path_key = top_match.get("img_path") or top_match.get("image_path") or ""
-  ref_img_path = find_valid_image_path(img_path_key, ref_dir_abs)
 
-  if ref_img_path and os.path.exists(ref_img_path):
-    ref_img = Image.open(ref_img_path).convert("RGB")
-    ref_tensor = transform(ref_img).unsqueeze(0).to(device)
-
-    with st.spinner("Generating attention heatmaps..."):
-      fig_query = generate_heatmap_fig(
-          query_img,
-          query_tensor,
-          model,
-          title=f"Target: {uploaded_file.name}",
+  for idx, data in enumerate(processed_data):
+    with st.expander(
+        f"📷 File {idx+1}: {data['file_name']} ➔ Predicted:"
+        f" {data['top_match']['kofun_name']}",
+        expanded=(idx == 0),
+    ):
+      img_path_key = (
+          data["top_match"].get("img_path")
+          or data["top_match"].get("image_path")
+          or ""
       )
-      fig_ref = generate_heatmap_fig(
-          ref_img,
-          ref_tensor,
-          model,
-          title=f"Top 1 Match: {top_match['kofun_name']}",
-      )
+      ref_img_path = find_valid_image_path(img_path_key, ref_dir_abs)
 
-    c1, c2 = st.columns(2)
-    with c1:
-      st.markdown("### 📷 Target Image")
-      st.image(query_img, use_container_width=True)
-      if fig_query:
-        st.pyplot(fig_query)
-        plt.close(fig_query)
+      if ref_img_path and os.path.exists(ref_img_path):
+        ref_img = Image.open(ref_img_path).convert("RGB")
+        ref_tensor = transform(ref_img).unsqueeze(0).to(device)
 
-    with c2:
-      st.markdown(f"### 🖼️ Database Match (Top 1: {top_match['kofun_name']})")
-      st.image(
-          ref_img,
-          caption=f"File: {os.path.basename(ref_img_path)}",
-          use_container_width=True,
-      )
-      if fig_ref:
-        st.pyplot(fig_ref)
-        plt.close(fig_ref)
-  else:
-    st.warning(
-        "ℹ️ 参考画像がリポジトリ内に見つかりません（データ照合と判定結果の出力は完了しています）。"
-    )
+        fig_query = generate_heatmap_fig(
+            data["query_img"],
+            data["query_tensor"],
+            model,
+            title=f"Target: {data['file_name']}",
+        )
+        fig_ref = generate_heatmap_fig(
+            ref_img,
+            ref_tensor,
+            model,
+            title=f"Top 1 Match: {data['top_match']['kofun_name']}",
+        )
 
-  # メモリ解放
-  del query_tensor, query_vec, query_vec_np
+        c1, c2 = st.columns(2)
+        with c1:
+          st.markdown("### 📷 Target Image")
+          st.image(data["query_img"], use_container_width=True)
+          if fig_query:
+            st.pyplot(fig_query)
+            plt.close(fig_query)
+
+        with c2:
+          st.markdown(
+              "### 🖼️ Database Match (Top 1:"
+              f" {data['top_match']['kofun_name']})"
+          )
+          st.image(
+              ref_img,
+              caption=f"File: {os.path.basename(ref_img_path)}",
+              use_container_width=True,
+          )
+          if fig_ref:
+            st.pyplot(fig_ref)
+            plt.close(fig_ref)
+
+        del ref_tensor
+      else:
+        st.warning(
+            "ℹ️"
+            " 参考画像がリポジトリ内に見つかりません（データ照合と判定結果の出力は完了しています）。"
+        )
+
+      del data["query_tensor"]
+
   gc.collect()
 
 else:
   st.info(
-      "👆 Upload an image to search the reference database and view attention"
+      "👆 Upload image(s) to search the reference database and view attention"
       " map profiling."
   )
