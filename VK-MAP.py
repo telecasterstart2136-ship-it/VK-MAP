@@ -30,74 +30,76 @@ MAPPING_FILE_ID = "1U0nUqZsX77Snq2J8RmCfv26E1k1vMCe4"
 
 
 def download_db_files(target_dir):
-  """Google Driveから2つのデータベースファイルを個別ダウンロードする安定化関数"""
-  index_path = os.path.join(target_dir, "kofun_faiss.index")
-  mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
+    """Google Driveから2つのデータベースファイルを個別ダウンロードする安定化関数"""
+    index_path = os.path.join(target_dir, "kofun_faiss.index")
+    mapping_path = os.path.join(target_dir, "kofun_mapping.pkl")
 
-  MIN_INDEX_SIZE = 1000
+    MIN_INDEX_SIZE = 1000
 
-  if (
-      os.path.exists(index_path)
-      and os.path.exists(mapping_path)
-      and os.path.getsize(index_path) > MIN_INDEX_SIZE
-  ):
-    return index_path, mapping_path
+    if (
+        os.path.exists(index_path)
+        and os.path.exists(mapping_path)
+        and os.path.getsize(index_path) > MIN_INDEX_SIZE
+    ):
+        return index_path, mapping_path
 
-  os.makedirs(target_dir, exist_ok=True)
+    os.makedirs(target_dir, exist_ok=True)
 
-  with st.spinner("📦 Downloading VK-MAP database from Google Drive..."):
-    if not os.path.exists(index_path) or os.path.getsize(index_path) <= MIN_INDEX_SIZE:
-      url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
-      gdown.download(url_index, index_path, quiet=False, fuzzy=True)
+    with st.spinner("📦 Downloading VK-MAP database from Google Drive..."):
+        if not os.path.exists(index_path) or os.path.getsize(index_path) <= MIN_INDEX_SIZE:
+            url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
+            gdown.download(url_index, index_path, quiet=False)
 
-   if not os.path.exists(index_path) or os.path.getsize(index_path) <= MIN_INDEX_SIZE:
-        url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
-        gdown.download(url_index, index_path, quiet=False)
+        if not os.path.exists(mapping_path) or os.path.getsize(mapping_path) <= MIN_INDEX_SIZE:
+            url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
+            gdown.download(url_mapping, mapping_path, quiet=False)
 
-    if not os.path.exists(mapping_path) or os.path.getsize(mapping_path) <= MIN_INDEX_SIZE:
-        url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
-        gdown.download(url_mapping, mapping_path, quiet=False)
-    st.stop()
-
-  try:
-    with open(index_path, "rb") as f:
-      header = f.read(100).lower()
-      if b"<html" in header or b"<!doctype html" in header:
-        if os.path.exists(index_path):
-          os.remove(index_path)
-        if os.path.exists(mapping_path):
-          os.remove(mapping_path)
+    if not os.path.exists(index_path) or not os.path.exists(mapping_path):
         st.error(
-            "⚠️ Google Drive のアクセス権限エラーにより HTML がダウンロードされました。\n"
-            "ファイルの共有設定を「リンクを知っている全員（閲覧者）」に変更してください。"
+            "⚠️ データベースファイルの取得に失敗しました。\n"
+            "Google Drive 上の共有設定（「リンクを知っている全員」）および ID 設定を確認してください。"
         )
         st.stop()
-  except Exception as e:
-    st.error(f"⚠️ インデックスファイルの読み込みエラー: {e}")
-    st.stop()
 
-  return index_path, mapping_path
+    try:
+        with open(index_path, "rb") as f:
+            header = f.read(100).lower()
+            if b"<html" in header or b"<!doctype html" in header:
+                if os.path.exists(index_path):
+                    os.remove(index_path)
+                if os.path.exists(mapping_path):
+                    os.remove(mapping_path)
+                st.error(
+                    "⚠️ Google Drive のアクセス権限エラーにより HTML がダウンロードされました。\n"
+                    "ファイルの共有設定を「リンクを知っている全員（閲覧者）」に変更してください。"
+                )
+                st.stop()
+    except Exception as e:
+        st.error(f"⚠️ インデックスファイルの読み込みエラー: {e}")
+        st.stop()
+
+    return index_path, mapping_path
 
 
 # --------------------------------------------------
 # Helper Functions for Path Resolution
 # --------------------------------------------------
 def resolve_path(rel_or_abs_path):
-  if os.path.isabs(rel_or_abs_path):
-    return rel_or_abs_path
-  return os.path.join(BASE_DIR, rel_or_abs_path)
+    if os.path.isabs(rel_or_abs_path):
+        return rel_or_abs_path
+    return os.path.join(BASE_DIR, rel_or_abs_path)
 
 
 def find_valid_image_path(original_path, ref_dir_abs):
-  if os.path.exists(original_path):
-    return original_path
+    if os.path.exists(original_path):
+        return original_path
 
-  filename = os.path.basename(original_path)
-  for root, _, files in os.walk(ref_dir_abs):
-    if filename in files:
-      return os.path.join(root, filename)
+    filename = os.path.basename(original_path)
+    for root, _, files in os.walk(ref_dir_abs):
+        if filename in files:
+            return os.path.join(root, filename)
 
-  return None
+    return None
 
 
 # --------------------------------------------------
@@ -131,32 +133,32 @@ reference_dir = st.sidebar.text_input(
 # --------------------------------------------------
 @st.cache_resource
 def load_system():
-  device = torch.device("cpu")
-  transform = transforms.Compose([
-      transforms.Resize((518, 518)),
-      transforms.ToTensor(),
-      transforms.Normalize(
-          mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-      ),
-  ])
+    device = torch.device("cpu")
+    transform = transforms.Compose([
+        transforms.Resize((518, 518)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        ),
+    ])
 
-  model = timm.create_model(
-      "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
-  ).to(device)
-  model.eval()
+    model = timm.create_model(
+        "vit_small_patch14_dinov2.lvd142m", pretrained=True, num_classes=0
+    ).to(device)
+    model.eval()
 
-  cache_dir = os.path.join(BASE_DIR, "cache_vkmap_dinov2")
-  index_file, mapping_file = download_db_files(cache_dir)
+    cache_dir = os.path.join(BASE_DIR, "cache_vkmap_dinov2")
+    index_file, mapping_file = download_db_files(cache_dir)
 
-  index = faiss.read_index(index_file)
-  with open(mapping_file, "rb") as f:
-    index_to_kofun = pickle.load(f)
+    index = faiss.read_index(index_file)
+    with open(mapping_file, "rb") as f:
+        index_to_kofun = pickle.load(f)
 
-  return model, index, index_to_kofun, transform, device
+    return model, index, index_to_kofun, transform, device
 
 
 with st.spinner("📦 Initializing DINOv2 model and index..."):
-  model, index, index_to_kofun, transform, device = load_system()
+    model, index, index_to_kofun, transform, device = load_system()
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 
@@ -165,57 +167,57 @@ st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 # 4. Attention Map Generator
 # --------------------------------------------------
 def generate_heatmap_fig(img_pil, input_tensor, model, title=""):
-  patch_size = 14
-  w, h = input_tensor.shape[2], input_tensor.shape[3]
-  w_featmap, h_featmap = w // patch_size, h // patch_size
+    patch_size = 14
+    w, h = input_tensor.shape[2], input_tensor.shape[3]
+    w_featmap, h_featmap = w // patch_size, h // patch_size
 
-  attentions = None
+    attentions = None
 
-  def hook_fn(module, input, output):
-    nonlocal attentions
-    attentions = output
+    def hook_fn(module, input, output):
+        nonlocal attentions
+        attentions = output
 
-  handle = model.blocks[-1].attn.qkv.register_forward_hook(hook_fn)
-  with torch.no_grad():
-    _ = model(input_tensor)
-  handle.remove()
+    handle = model.blocks[-1].attn.qkv.register_forward_hook(hook_fn)
+    with torch.no_grad():
+        _ = model(input_tensor)
+    handle.remove()
 
-  if attentions is None:
-    return None
+    if attentions is None:
+        return None
 
-  B, N, C = attentions.shape
-  qkv = (
-      attentions.reshape(
-          B,
-          N,
-          3,
-          model.blocks[-1].attn.num_heads,
-          C // (3 * model.blocks[-1].attn.num_heads),
-      ).permute(2, 0, 3, 1, 4)
-  )
-  q, k = qkv[0], qkv[1]
+    B, N, C = attentions.shape
+    qkv = (
+        attentions.reshape(
+            B,
+            N,
+            3,
+            model.blocks[-1].attn.num_heads,
+            C // (3 * model.blocks[-1].attn.num_heads),
+        ).permute(2, 0, 3, 1, 4)
+    )
+    q, k = qkv[0], qkv[1]
 
-  scale = (C // (3 * model.blocks[-1].attn.num_heads)) ** -0.5
-  attn = (q @ k.transpose(-2, -1)) * scale
-  attn = attn.softmax(dim=-1)
+    scale = (C // (3 * model.blocks[-1].attn.num_heads)) ** -0.5
+    attn = (q @ k.transpose(-2, -1)) * scale
+    attn = attn.softmax(dim=-1)
 
-  cls_attn = (
-      attn[0, :, 0, 1:].mean(dim=0).reshape(w_featmap, h_featmap).cpu().numpy()
-  )
-  cls_attn_resized = np.array(
-      Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC)
-  )
-  cls_attn_norm = (cls_attn_resized - cls_attn_resized.min()) / (
-      cls_attn_resized.max() - cls_attn_resized.min() + 1e-8
-  )
+    cls_attn = (
+        attn[0, :, 0, 1:].mean(dim=0).reshape(w_featmap, h_featmap).cpu().numpy()
+    )
+    cls_attn_resized = np.array(
+        Image.fromarray(cls_attn).resize(img_pil.size, Image.BICUBIC)
+    )
+    cls_attn_norm = (cls_attn_resized - cls_attn_resized.min()) / (
+        cls_attn_resized.max() - cls_attn_resized.min() + 1e-8
+    )
 
-  fig, ax = plt.subplots(figsize=(5, 5))
-  ax.imshow(img_pil)
-  ax.imshow(cls_attn_norm, cmap="jet", alpha=0.5)
-  ax.set_title(title, fontsize=10)
-  ax.axis("off")
-  plt.tight_layout()
-  return fig
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.imshow(img_pil)
+    ax.imshow(cls_attn_norm, cmap="jet", alpha=0.5)
+    ax.set_title(title, fontsize=10)
+    ax.axis("off")
+    plt.tight_layout()
+    return fig
 
 
 # --------------------------------------------------
@@ -225,153 +227,153 @@ st.subheader("1. Upload Target Images")
 uploaded_files = st.file_uploader(
     "Drag and drop decorated pattern images here",
     type=["jpg", "jpeg", "png", "webp"],
-    accept_multiple_files=True,  # 複数選択を許可
+    accept_multiple_files=True,
 )
 
 if uploaded_files:
-  all_results = []
-  processed_data = []
+    all_results = []
+    processed_data = []
 
-  with st.spinner(f"Processing {len(uploaded_files)} image(s)..."):
-    for uploaded_file in uploaded_files:
-      query_img = Image.open(uploaded_file).convert("RGB")
-      query_tensor = transform(query_img).unsqueeze(0).to(device)
+    with st.spinner(f"Processing {len(uploaded_files)} image(s)..."):
+        for uploaded_file in uploaded_files:
+            query_img = Image.open(uploaded_file).convert("RGB")
+            query_tensor = transform(query_img).unsqueeze(0).to(device)
 
-      # Search in Database
-      with torch.no_grad():
-        query_vec = model(query_tensor)
-        query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
-        query_vec_np = query_vec.cpu().numpy().astype("float32")
+            # Search in Database
+            with torch.no_grad():
+                query_vec = model(query_tensor)
+                query_vec = query_vec / query_vec.norm(p=2, dim=-1, keepdim=True)
+                query_vec_np = query_vec.cpu().numpy().astype("float32")
 
-      k_search = min(3, len(index_to_kofun))
-      distances, indices = index.search(query_vec_np, k=k_search)
+            k_search = min(3, len(index_to_kofun))
+            distances, indices = index.search(query_vec_np, k=k_search)
 
-      top_score = float(distances[0][0])
-      top_match = index_to_kofun[indices[0][0]]
-      predicted_label = (
-          top_match["kofun_name"]
-          if top_score >= threshold
-          else "Unregistered (Low Similarity)"
-      )
+            top_score = float(distances[0][0])
+            top_match = index_to_kofun[indices[0][0]]
+            predicted_label = (
+                top_match["kofun_name"]
+                if top_score >= threshold
+                else "Unregistered (Low Similarity)"
+            )
 
-      rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
-      rank2_score = float(distances[0][1]) if k_search > 1 else top_score
+            rank2_match = index_to_kofun[indices[0][1]] if k_search > 1 else top_match
+            rank2_score = float(distances[0][1]) if k_search > 1 else top_score
 
-      rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
-      rank3_score = float(distances[0][2]) if k_search > 2 else top_score
+            rank3_match = index_to_kofun[indices[0][2]] if k_search > 2 else top_match
+            rank3_score = float(distances[0][2]) if k_search > 2 else top_score
 
-      all_results.append({
-          "Input File": uploaded_file.name,
-          "Predicted Kofun": predicted_label,
-          "Top Similarity": round(top_score, 4),
-          "Rank 1 Match": top_match["kofun_name"],
-          "Rank 2 Match": rank2_match["kofun_name"],
-          "Rank 2 Score": round(rank2_score, 4),
-          "Rank 3 Match": rank3_match["kofun_name"],
-          "Rank 3 Score": round(rank3_score, 4),
-      })
+            all_results.append({
+                "Input File": uploaded_file.name,
+                "Predicted Kofun": predicted_label,
+                "Top Similarity": round(top_score, 4),
+                "Rank 1 Match": top_match["kofun_name"],
+                "Rank 2 Match": rank2_match["kofun_name"],
+                "Rank 2 Score": round(rank2_score, 4),
+                "Rank 3 Match": rank3_match["kofun_name"],
+                "Rank 3 Score": round(rank3_score, 4),
+            })
 
-      processed_data.append({
-          "file_name": uploaded_file.name,
-          "query_img": query_img,
-          "query_tensor": query_tensor,
-          "top_match": top_match,
-      })
+            processed_data.append({
+                "file_name": uploaded_file.name,
+                "query_img": query_img,
+                "query_tensor": query_tensor,
+                "top_match": top_match,
+            })
 
-      del query_vec, query_vec_np
+            del query_vec, query_vec_np
 
-  # --------------------------------------------------
-  # 6. UI: Prediction Results Table
-  # --------------------------------------------------
-  st.markdown("---")
-  st.subheader("2. Matching Results Summary")
+    # --------------------------------------------------
+    # 6. UI: Prediction Results Table
+    # --------------------------------------------------
+    st.markdown("---")
+    st.subheader("2. Matching Results Summary")
 
-  df_result = pd.DataFrame(all_results)
-  st.dataframe(df_result, use_container_width=True)
+    df_result = pd.DataFrame(all_results)
+    st.dataframe(df_result, use_container_width=True)
 
-  # CSV Download Button
-  timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-  csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
-  st.download_button(
-      label="📥 Download All Results CSV",
-      data=csv_bytes,
-      file_name=f"VK-MAP_matching_results_{timestamp}.csv",
-      mime="text/csv",
-  )
+    # CSV Download Button
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        label="📥 Download All Results CSV",
+        data=csv_bytes,
+        file_name=f"VK-MAP_matching_results_{timestamp}.csv",
+        mime="text/csv",
+    )
 
-  # --------------------------------------------------
-  # 7. UI: Attention Heatmap Comparison
-  # --------------------------------------------------
-  st.markdown("---")
-  st.subheader("3. Attention Map Profiling Per Image")
+    # --------------------------------------------------
+    # 7. UI: Attention Heatmap Comparison
+    # --------------------------------------------------
+    st.markdown("---")
+    st.subheader("3. Attention Map Profiling Per Image")
 
-  ref_dir_abs = resolve_path(reference_dir)
+    ref_dir_abs = resolve_path(reference_dir)
 
-  for idx, data in enumerate(processed_data):
-    with st.expander(
-        f"📷 File {idx+1}: {data['file_name']} ➔ Predicted:"
-        f" {data['top_match']['kofun_name']}",
-        expanded=(idx == 0),
-    ):
-      img_path_key = (
-          data["top_match"].get("img_path")
-          or data["top_match"].get("image_path")
-          or ""
-      )
-      ref_img_path = find_valid_image_path(img_path_key, ref_dir_abs)
+    for idx, data in enumerate(processed_data):
+        with st.expander(
+            f"📷 File {idx+1}: {data['file_name']} ➔ Predicted:"
+            f" {data['top_match']['kofun_name']}",
+            expanded=(idx == 0),
+        ):
+            img_path_key = (
+                data["top_match"].get("img_path")
+                or data["top_match"].get("image_path")
+                or ""
+            )
+            ref_img_path = find_valid_image_path(img_path_key, ref_dir_abs)
 
-      if ref_img_path and os.path.exists(ref_img_path):
-        ref_img = Image.open(ref_img_path).convert("RGB")
-        ref_tensor = transform(ref_img).unsqueeze(0).to(device)
+            if ref_img_path and os.path.exists(ref_img_path):
+                ref_img = Image.open(ref_img_path).convert("RGB")
+                ref_tensor = transform(ref_img).unsqueeze(0).to(device)
 
-        fig_query = generate_heatmap_fig(
-            data["query_img"],
-            data["query_tensor"],
-            model,
-            title=f"Target: {data['file_name']}",
-        )
-        fig_ref = generate_heatmap_fig(
-            ref_img,
-            ref_tensor,
-            model,
-            title=f"Top 1 Match: {data['top_match']['kofun_name']}",
-        )
+                fig_query = generate_heatmap_fig(
+                    data["query_img"],
+                    data["query_tensor"],
+                    model,
+                    title=f"Target: {data['file_name']}",
+                )
+                fig_ref = generate_heatmap_fig(
+                    ref_img,
+                    ref_tensor,
+                    model,
+                    title=f"Top 1 Match: {data['top_match']['kofun_name']}",
+                )
 
-        c1, c2 = st.columns(2)
-        with c1:
-          st.markdown("### 📷 Target Image")
-          st.image(data["query_img"], use_container_width=True)
-          if fig_query:
-            st.pyplot(fig_query)
-            plt.close(fig_query)
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("### 📷 Target Image")
+                    st.image(data["query_img"], use_container_width=True)
+                    if fig_query:
+                        st.pyplot(fig_query)
+                        plt.close(fig_query)
 
-        with c2:
-          st.markdown(
-              "### 🖼️ Database Match (Top 1:"
-              f" {data['top_match']['kofun_name']})"
-          )
-          st.image(
-              ref_img,
-              caption=f"File: {os.path.basename(ref_img_path)}",
-              use_container_width=True,
-          )
-          if fig_ref:
-            st.pyplot(fig_ref)
-            plt.close(fig_ref)
+                with c2:
+                    st.markdown(
+                        "### 🖼️ Database Match (Top 1:"
+                        f" {data['top_match']['kofun_name']})"
+                    )
+                    st.image(
+                        ref_img,
+                        caption=f"File: {os.path.basename(ref_img_path)}",
+                        use_container_width=True,
+                    )
+                    if fig_ref:
+                        st.pyplot(fig_ref)
+                        plt.close(fig_ref)
 
-        del ref_tensor
-      else:
-        st.warning(
-            "ℹ️"
-            " 参考画像がリポジトリ内に見つかりません（データ照合と判定結果の出力は完了しています）。"
-        )
+                del ref_tensor
+            else:
+                st.warning(
+                    "ℹ️"
+                    " 参考画像がリポジトリ内に見つかりません（データ照合と判定結果の出力は完了しています）。"
+                )
 
-      del data["query_tensor"]
+            del data["query_tensor"]
 
-  gc.collect()
+    gc.collect()
 
 else:
-  st.info(
-      "👆 Upload image(s) to search the reference database and view attention"
-      " map profiling."
-  )
+    st.info(
+        "👆 Upload image(s) to search the reference database and view attention"
+        " map profiling."
+    )
