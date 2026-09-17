@@ -50,15 +50,13 @@ def download_db_files(target_dir):
       url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
       gdown.download(url_index, index_path, quiet=False, fuzzy=True)
 
-    if not os.path.exists(mapping_path) or os.path.getsize(mapping_path) <= MIN_INDEX_SIZE:
-      url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
-      gdown.download(url_mapping, mapping_path, quiet=False, fuzzy=True)
+   if not os.path.exists(index_path) or os.path.getsize(index_path) <= MIN_INDEX_SIZE:
+        url_index = f"https://drive.google.com/uc?id={INDEX_FILE_ID}"
+        gdown.download(url_index, index_path, quiet=False)
 
-  if not os.path.exists(index_path) or not os.path.exists(mapping_path):
-    st.error(
-        "⚠️ データベースファイルの取得に失敗しました。\n"
-        "Google Drive 上の共有設定（「リンクを知っている全員」）および ID 設定を確認してください。"
-    )
+    if not os.path.exists(mapping_path) or os.path.getsize(mapping_path) <= MIN_INDEX_SIZE:
+        url_mapping = f"https://drive.google.com/uc?id={MAPPING_FILE_ID}"
+        gdown.download(url_mapping, mapping_path, quiet=False)
     st.stop()
 
   try:
