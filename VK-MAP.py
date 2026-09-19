@@ -293,7 +293,7 @@ if uploaded_files:
     st.subheader("2. Matching Results Summary")
 
     df_result = pd.DataFrame(all_results)
-    st.dataframe(df_result, use_container_width=True)
+    st.dataframe(df_result, width="stretch")
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
@@ -345,7 +345,7 @@ if uploaded_files:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("### 📷 Target Image")
-                    st.image(data["query_img"], use_container_width=True)
+                    st.image(data["query_img"], width="stretch")
                     if fig_query:
                         st.pyplot(fig_query)
                         plt.close(fig_query)
@@ -358,7 +358,7 @@ if uploaded_files:
                     st.image(
                         ref_img,
                         caption=f"File: {os.path.basename(ref_img_path)}",
-                        use_container_width=True,
+                        width="stretch",
                     )
                     if fig_ref:
                         st.pyplot(fig_ref)
