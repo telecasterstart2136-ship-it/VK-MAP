@@ -6,6 +6,7 @@ import shutil
 import faiss
 import gdown
 import matplotlib.pyplot as plt
+import japanize-matplotlib
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -14,6 +15,7 @@ import streamlit as st
 import timm
 import torch
 from torchvision import transforms
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -162,6 +164,7 @@ with st.spinner("📦 Initializing DINOv2 model and index..."):
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 
+plt.rcParams["font.family"] = "IPAGothic"  # or another CJK font installed on host
 
 # --------------------------------------------------
 # 4. Attention Map Generator
@@ -289,7 +292,13 @@ if uploaded_files:
     st.subheader("2. Matching Results Summary")
 
     df_result = pd.DataFrame(all_results)
-    st.dataframe(df_result, use_container_width=True)
+    st.dataframe(df_result, use_container_width="stretch")
+
+use_container_width=True の箇所を width="stretch" に変更
+
+use_container_width=False の箇所を width="content" に変更
+
+確認方法: Streamlitアプリを再起動し、端末のログから use_container_width に関するDeprecationWarningが出力されなくなっているか確認します。)
 
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
