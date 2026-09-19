@@ -7,6 +7,10 @@ import faiss
 import gdown
 import matplotlib.pyplot as plt
 import japanize_matplotlib
+
+# japanize_matplotlib の明示的初期化（フォント欠損警告の回避）
+japanize_matplotlib.japanize()
+
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -164,9 +168,6 @@ with st.spinner("📦 Initializing DINOv2 model and index..."):
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
 
-# japanize_matplotlib がインポートされているため、上書きの独自フォント指定は解除
-# plt.rcParams["font.family"] = "IPAGothic"
-
 # --------------------------------------------------
 # 4. Attention Map Generator
 # --------------------------------------------------
@@ -293,7 +294,9 @@ if uploaded_files:
     st.subheader("2. Matching Results Summary")
 
     df_result = pd.DataFrame(all_results)
-    st.dataframe(df_result, width="stretch")
+    # width="stretch" -> use_container_width=True に変更
+    st.dataframe(df_result, use_container_width=True)
+    
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
@@ -345,7 +348,8 @@ if uploaded_files:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("### 📷 Target Image")
-                    st.image(data["query_img"], width="stretch")
+                    # width="stretch" -> use_container_width=True に変更
+                    st.image(data["query_img"], use_container_width=True)
                     if fig_query:
                         st.pyplot(fig_query)
                         plt.close(fig_query)
@@ -355,10 +359,11 @@ if uploaded_files:
                         "### 🖼️ Database Match (Top 1:"
                         f" {data['top_match']['kofun_name']})"
                     )
+                    # width="stretch" -> use_container_width=True に変更
                     st.image(
                         ref_img,
                         caption=f"File: {os.path.basename(ref_img_path)}",
-                        width="stretch",
+                        use_container_width=True,
                     )
                     if fig_ref:
                         st.pyplot(fig_ref)
