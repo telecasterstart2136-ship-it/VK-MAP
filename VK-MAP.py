@@ -6,7 +6,7 @@ import shutil
 import faiss
 import gdown
 import matplotlib.pyplot as plt
-import japanize-matplotlib
+import japanize_matplotlib
 import numpy as np
 import pandas as pd
 from PIL import Image
