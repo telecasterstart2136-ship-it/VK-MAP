@@ -293,13 +293,6 @@ if uploaded_files:
 
     df_result = pd.DataFrame(all_results)
     st.dataframe(df_result, use_container_width="stretch")
-
-use_container_width=True の箇所を width="stretch" に変更
-
-use_container_width=False の箇所を width="content" に変更
-
-確認方法: Streamlitアプリを再起動し、端末のログから use_container_width に関するDeprecationWarningが出力されなくなっているか確認します。)
-
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
