@@ -3,18 +3,19 @@ name: Sync to Hugging Face Hub
 on:
   push:
     branches: [main]
-
-  # 手動実行用ボタン（任意）
   workflow_dispatch:
 
 jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          lfs: true
+
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://:telecasterstart2136-ship-it$HF_TOKEN@huggingface.co/spaces/Wakaba0991/github-sync main
+        run: |
+          git push --force https://telecasterstart2136-ship-it:$HF_TOKEN@huggingface.co/spaces/Wakaba0991/VK-map
