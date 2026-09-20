@@ -13,23 +13,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create clean branch without images and push
+      - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # 履歴を持たない新しい孤立ブランチを作成
-          git checkout --orphan hf-deploy
-          
-          # 画像ファイルをインデックスおよび作業ツリーから削除
-          git rm -r --cached "*.jpg" "*.jpeg" "*.png" "*.gif" || true
-          find . -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" -o -name "*.gif" \) -delete
-          
-          # 残ったコードやテキストファイルのみをコミット
-          git add .
-          git commit -m "Deploy code without images"
-          
-          # Hugging Face の main ブランチへ強制 Push
+        run:  
           git push --force "https://telecasterstart2136-ship-it:$HF_TOKEN@huggingface.co/spaces/Wakaba0991/VK-map" main
