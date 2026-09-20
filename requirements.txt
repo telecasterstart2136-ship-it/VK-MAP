@@ -3,9 +3,10 @@ torch
 torchvision
 timm
 faiss-cpu
-pillow
-matplotlib
-pandas
-numpy
 gdown
+matplotlib
 japanize-matplotlib
+numpy
+pandas
+Pillow
+requests
