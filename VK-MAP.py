@@ -18,7 +18,7 @@ import timm
 import torch
 from torchvision import transforms
 
-# 必要に応じて非表示にしたい警告を無視（ログの混雑防止）
+# Matplotlibのフォント欠落警告等を非表示にしてログの混雑を防ぐ
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -294,8 +294,7 @@ if uploaded_files:
     st.subheader("2. Matching Results Summary")
 
     df_result = pd.DataFrame(all_results)
-    # Streamlit最新仕様：width="stretch" を使用
-    st.dataframe(df_result, width="stretch")
+    st.dataframe(df_result, use_container_width=True)
 
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -348,8 +347,7 @@ if uploaded_files:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("### 📷 Target Image")
-                    # Streamlit最新仕様：width="stretch" を使用
-                    st.image(data["query_img"], width="stretch")
+                    st.image(data["query_img"], use_container_width=True)
                     if fig_query:
                         st.pyplot(fig_query)
                         plt.close(fig_query)
@@ -359,11 +357,10 @@ if uploaded_files:
                         "### 🖼️ Database Match (Top 1:"
                         f" {data['top_match']['kofun_name']})"
                     )
-                    # Streamlit最新仕様：width="stretch" を使用
                     st.image(
                         ref_img,
                         caption=f"File: {os.path.basename(ref_img_path)}",
-                        width="stretch",
+                        use_container_width=True,
                     )
                     if fig_ref:
                         st.pyplot(fig_ref)
