@@ -14,17 +14,13 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Install and configure Git LFS
+      - name: Install Git LFS
         run: |
           git lfs install
-          git lfs track "*.jpg" "*.jpeg" "*.png" "*.gif"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .gitattributes
-          git commit -m "Track binary files with Git LFS" || true
 
       - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          git lfs migrate import --include="*.jpg,*.jpeg,*.png,*.gif" --everything
           git push --force "https://telecasterstart2136-ship-it:$HF_TOKEN@huggingface.co/spaces/Wakaba0991/VK-map" main
