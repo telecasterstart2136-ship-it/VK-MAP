@@ -4,11 +4,10 @@ import os
 import pickle
 import shutil
 import warnings
-
 import faiss
 import gdown
-import japanize_matplotlib
 import matplotlib.pyplot as plt
+import japanize_matplotlib
 import numpy as np
 import pandas as pd
 from PIL import Image
