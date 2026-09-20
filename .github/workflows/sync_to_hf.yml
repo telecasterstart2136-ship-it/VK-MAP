@@ -27,4 +27,4 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://telecasterstart2136-ship-it:$HF_TOKEN@huggingface.co/spaces/Wakaba0991/VK%20map main
+          git push --force "https://telecasterstart2136-ship-it:$HF_TOKEN@huggingface.co/spaces/Wakaba0991/VK%20map" main
