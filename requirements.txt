@@ -5,8 +5,8 @@ timm
 faiss-cpu
 gdown
 matplotlib
-japanize-matplotlib
 numpy
 pandas
 Pillow
 requests
+japanize-matplotlib
