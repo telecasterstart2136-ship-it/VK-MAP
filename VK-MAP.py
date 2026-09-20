@@ -295,7 +295,7 @@ if uploaded_files:
 
     df_result = pd.DataFrame(all_results)
     # width="stretch" -> use_container_width=True に変更
-    st.dataframe(df_result, use_container_width=True)
+    st.dataframe(df_result, width="stretch")
     
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -349,7 +349,7 @@ if uploaded_files:
                 with c1:
                     st.markdown("### 📷 Target Image")
                     # width="stretch" -> use_container_width=True に変更
-                    st.image(data["query_img"], use_container_width=True)
+                    st.image(data["query_img"], width="stretch")
                     if fig_query:
                         st.pyplot(fig_query)
                         plt.close(fig_query)
@@ -363,7 +363,7 @@ if uploaded_files:
                     st.image(
                         ref_img,
                         caption=f"File: {os.path.basename(ref_img_path)}",
-                        use_container_width=True,
+                        width="stretch",
                     )
                     if fig_ref:
                         st.pyplot(fig_ref)
