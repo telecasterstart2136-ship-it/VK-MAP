@@ -3,10 +3,12 @@ import gc
 import os
 import pickle
 import shutil
+import warnings
+
 import faiss
 import gdown
-import matplotlib.pyplot as plt
 import japanize_matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -16,6 +18,8 @@ import timm
 import torch
 from torchvision import transforms
 
+# 必要に応じて非表示にしたい警告を無視（ログの混雑防止）
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -110,8 +114,7 @@ def find_valid_image_path(original_path, ref_dir_abs):
 st.set_page_config(page_title="VK-MAP (UI2)", layout="wide")
 st.title("🏛️ VK-MAP (UI2)")
 st.caption(
-    "Visual Kofun Matching and Attention Profiling System — Automatic Database"
-    " Matching"
+    "Visual Kofun Matching and Attention Profiling System — Automatic Database Matching"
 )
 
 # --------------------------------------------------
@@ -163,6 +166,7 @@ with st.spinner("📦 Initializing DINOv2 model and index..."):
     model, index, index_to_kofun, transform, device = load_system()
 
 st.success(f"✅ System Ready ({len(index_to_kofun)} features loaded)")
+
 
 # --------------------------------------------------
 # 4. Attention Map Generator
@@ -290,9 +294,9 @@ if uploaded_files:
     st.subheader("2. Matching Results Summary")
 
     df_result = pd.DataFrame(all_results)
-    # width="stretch" -> use_container_width=True に変更
+    # Streamlit最新仕様：width="stretch" を使用
     st.dataframe(df_result, width="stretch")
-    
+
     # CSV Download Button
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_bytes = df_result.to_csv(index=False).encode("utf-8-sig")
@@ -344,7 +348,7 @@ if uploaded_files:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("### 📷 Target Image")
-                    # width="stretch" -> use_container_width=True に変更
+                    # Streamlit最新仕様：width="stretch" を使用
                     st.image(data["query_img"], width="stretch")
                     if fig_query:
                         st.pyplot(fig_query)
@@ -355,7 +359,7 @@ if uploaded_files:
                         "### 🖼️ Database Match (Top 1:"
                         f" {data['top_match']['kofun_name']})"
                     )
-                    # width="stretch" -> use_container_width=True に変更
+                    # Streamlit最新仕様：width="stretch" を使用
                     st.image(
                         ref_img,
                         caption=f"File: {os.path.basename(ref_img_path)}",
