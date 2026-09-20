@@ -15,9 +15,10 @@ jobs:
           lfs: true
 
       - name: Push to hub
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git push --force https://telecasterstart2136-ship-it:$HF_TOKEN@huggingface.co/spaces/Wakaba0991/VK map
+        uses: nbrg/huggingface-sync-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          huggingface_token: ${{ secrets.HF_TOKEN }}
+          huggingface_repo: Wakaba0991/VK map
+          repo_type: space
+          space_sdk: streamlit
