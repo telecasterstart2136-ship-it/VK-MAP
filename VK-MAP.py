@@ -7,10 +7,6 @@ import faiss
 import gdown
 import matplotlib.pyplot as plt
 import japanize_matplotlib
-
-# japanize_matplotlib の明示的初期化（フォント欠損警告の回避）
-japanize_matplotlib.japanize()
-
 import numpy as np
 import pandas as pd
 from PIL import Image
